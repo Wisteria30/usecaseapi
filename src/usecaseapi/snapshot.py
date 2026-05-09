@@ -1,6 +1,9 @@
+"""Snapshot serialization and diffing for UseCaseAPI contract catalogs."""
+
 from __future__ import annotations
 
 import json
+
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -13,7 +16,6 @@ from .errors import UseCaseError
 
 def exception_to_dict(error_type: type[UseCaseError]) -> dict[str, Any]:
     """Serialize exception class metadata for catalogs and snapshots."""
-
     parents: list[str] = []
     for parent in error_type.__mro__[1:]:
         if parent is Exception or parent is BaseException or parent is object:
@@ -28,7 +30,6 @@ def exception_to_dict(error_type: type[UseCaseError]) -> dict[str, Any]:
 
 def ref_to_dict(ref: UseCaseRef[Any, Any], *, uses: tuple[str, ...] = ()) -> dict[str, Any]:
     """Serialize a usecase reference and contract metadata."""
-
     contract = ref.contract
     return {
         "key": contract.key,
@@ -56,7 +57,6 @@ def ref_to_dict(ref: UseCaseRef[Any, Any], *, uses: tuple[str, ...] = ()) -> dic
 
 def snapshot_from_api(api: UseCaseAPI[Any]) -> dict[str, Any]:
     """Build a JSON-serializable snapshot from a UseCaseAPI instance."""
-
     uses_by_key = {binding.ref.key: tuple(sorted(binding.uses)) for binding in api.bindings}
     return {
         "schema_version": 1,
@@ -69,14 +69,12 @@ def snapshot_from_api(api: UseCaseAPI[Any]) -> dict[str, Any]:
 
 def write_snapshot(api: UseCaseAPI[Any], path: str | Path) -> None:
     """Write a stable JSON snapshot to disk."""
-
     payload = snapshot_from_api(api)
     Path(path).write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
 
 
 def load_snapshot(path: str | Path) -> dict[str, Any]:
     """Load a snapshot from disk."""
-
     payload = json.loads(Path(path).read_text())
     if not isinstance(payload, dict):
         raise ValueError("snapshot must be a JSON object")
@@ -93,9 +91,11 @@ class ContractDiff:
 
     @property
     def has_breaking_changes(self) -> bool:
+        """Whether the diff contains at least one breaking change."""
         return bool(self.breaking)
 
     def to_dict(self) -> dict[str, list[str]]:
+        """Return a JSON-friendly diff payload."""
         return {
             "breaking": list(self.breaking),
             "warnings": list(self.warnings),
@@ -105,7 +105,6 @@ class ContractDiff:
 
 def diff_snapshots(old: Mapping[str, Any], new: Mapping[str, Any]) -> ContractDiff:
     """Diff snapshots with conservative breaking-change detection."""
-
     old_cases = _index_usecases(old)
     new_cases = _index_usecases(new)
     breaking: list[str] = []

@@ -1,7 +1,9 @@
+"""Contract metadata and typed usecase references."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Generic, Protocol, TypeVar, runtime_checkable
+from typing import Any, Protocol, TypeVar, runtime_checkable
 
 from .errors import ContractDefinitionError, UseCaseError
 from .model import Model
@@ -21,7 +23,7 @@ class UseCase(Protocol[UseCaseInputT, UseCaseOutputT]):
 
 
 @dataclass(frozen=True, slots=True)
-class Contract(Generic[InputT, OutputT]):
+class Contract[InputT: Model, OutputT: Model]:
     """Runtime metadata for a Protocol-first usecase contract."""
 
     name: str
@@ -37,6 +39,7 @@ class Contract(Generic[InputT, OutputT]):
     tags: tuple[str, ...] = field(default_factory=tuple)
 
     def __post_init__(self) -> None:
+        """Validate contract metadata after dataclass initialization."""
         if not self.name or not self.name.strip():
             raise ContractDefinitionError("contract name must not be empty")
         if self.version < 1:
@@ -59,11 +62,12 @@ class Contract(Generic[InputT, OutputT]):
 
     @property
     def key(self) -> str:
+        """Stable contract key in ``name@vN`` form."""
         return f"{self.name}@v{self.version}"
 
 
 @dataclass(frozen=True, slots=True)
-class UseCaseRef(Generic[InputT, OutputT]):
+class UseCaseRef[InputT: Model, OutputT: Model]:
     """Typed token used to call and bind a usecase contract."""
 
     protocol: type[Any]
@@ -71,26 +75,29 @@ class UseCaseRef(Generic[InputT, OutputT]):
 
     @property
     def key(self) -> str:
+        """Stable contract key in ``name@vN`` form."""
         return self.contract.key
 
     @property
     def name(self) -> str:
+        """Contract name without the version suffix."""
         return self.contract.name
 
     @property
     def version(self) -> int:
+        """Contract major version."""
         return self.contract.version
 
     def __repr__(self) -> str:
+        """Return a compact debug representation."""
         return f"UseCaseRef({self.key})"
 
 
-def define_usecase(
+def define_usecase[InputT: Model, OutputT: Model](
     protocol: type[Any],
     contract: Contract[InputT, OutputT],
 ) -> UseCaseRef[InputT, OutputT]:
     """Create a typed token for a usecase Protocol and its contract metadata."""
-
     if protocol is object:
         raise ContractDefinitionError("protocol must be a concrete Protocol class")
     return UseCaseRef(protocol=protocol, contract=contract)

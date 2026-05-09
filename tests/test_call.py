@@ -1,6 +1,9 @@
+"""Runtime call behavior tests."""
+
 from __future__ import annotations
 
 import asyncio
+
 from typing import ClassVar, Protocol
 
 import pytest
@@ -34,6 +37,7 @@ class KnownExampleError(ExampleError):
     code: ClassVar[str] = "example.known"
 
     def __init__(self) -> None:
+        """Create a known example error."""
         super().__init__("known")
 
 
@@ -41,6 +45,7 @@ class OtherError(UseCaseError):
     code: ClassVar[str] = "other"
 
     def __init__(self) -> None:
+        """Create an undeclared example error."""
         super().__init__("other")
 
 
@@ -67,6 +72,7 @@ class Context(Model):
 
 class GoodImpl:
     def __init__(self, multiplier: int) -> None:
+        """Create an implementation with a multiplier."""
         self.multiplier = multiplier
 
     async def __call__(self, input: Input, /) -> Output:
@@ -84,6 +90,7 @@ class OtherErrorImpl:
 
 
 def test_direct_call_uses_context_and_returns_output() -> None:
+    """A direct call uses caller context and returns the handler output."""
     api = UseCaseAPI[Context]()
     api.bind(EXAMPLE, lambda caller: GoodImpl(caller.context.multiplier))
 
@@ -93,6 +100,7 @@ def test_direct_call_uses_context_and_returns_output() -> None:
 
 
 def test_declared_domain_error_is_propagated() -> None:
+    """Declared domain errors propagate unchanged."""
     api = UseCaseAPI[Context]()
     api.bind(EXAMPLE, lambda caller: KnownErrorImpl())
 
@@ -101,6 +109,7 @@ def test_declared_domain_error_is_propagated() -> None:
 
 
 def test_undeclared_domain_error_is_wrapped_as_contract_violation() -> None:
+    """Undeclared domain errors are wrapped as contract violations."""
     api = UseCaseAPI[Context]()
     api.bind(EXAMPLE, lambda caller: OtherErrorImpl())
 
@@ -109,6 +118,7 @@ def test_undeclared_domain_error_is_wrapped_as_contract_violation() -> None:
 
 
 def test_strict_declared_uses_guard() -> None:
+    """Strict dependency mode rejects undeclared nested usecase calls."""
     class Parent(UseCase[Input, Output], Protocol):
         async def __call__(self, input: Input, /) -> Output: ...
 

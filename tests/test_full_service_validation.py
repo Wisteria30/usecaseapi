@@ -1,9 +1,12 @@
+"""Full service validation tests for packaging, CLI, and runtime behavior."""
+
 from __future__ import annotations
 
 import asyncio
 import json
 import runpy
 import sys
+
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, ClassVar, Protocol, cast
@@ -110,10 +113,12 @@ class EmptyImpl:
 
 
 async def function_handler(input: Input, /) -> Output:
+    """Function-style handler used to validate callable target detection."""
     return Output(value=input.value + 10)
 
 
 def run_call(api: UseCaseAPI[None], input: Input | EmptyInput | None = None) -> Any:
+    """Run a single call against the example or empty reference."""
     if input is None:
         input = Input(value=1)
     ref: Any = EMPTY if isinstance(input, EmptyInput) else EXAMPLE
@@ -121,6 +126,7 @@ def run_call(api: UseCaseAPI[None], input: Input | EmptyInput | None = None) -> 
 
 
 def test_contract_definition_guards_and_ref_properties() -> None:
+    """Contract definitions reject invalid metadata and expose stable ref properties."""
     with pytest.raises(ContractDefinitionError, match="name"):
         Contract(name=" ", version=1, input=Input, output=Output)
     with pytest.raises(ContractDefinitionError, match="version"):
@@ -156,6 +162,7 @@ def test_contract_definition_guards_and_ref_properties() -> None:
 
 
 def test_usecase_api_registry_validation_and_metadata() -> None:
+    """Registry validation detects duplicate, missing, and unknown usecase bindings."""
     api = UseCaseAPI[None]()
     api.register(EXAMPLE)
     duplicate = define_usecase(
@@ -188,6 +195,7 @@ def test_usecase_api_registry_validation_and_metadata() -> None:
 
 
 def test_handler_validation_rejects_invalid_runtime_shapes() -> None:
+    """Handler validation rejects invalid async, annotation, callable, and output shapes."""
     class SyncImpl:
         def __call__(self, input: Input, /) -> Output:
             return Output(value=input.value)
@@ -261,6 +269,7 @@ def test_handler_validation_rejects_invalid_runtime_shapes() -> None:
 
 
 def test_caller_records_gather_and_error_policy() -> None:
+    """Caller records, gather behavior, and strict error policy are enforced."""
     api = UseCaseAPI[None](strict_errors=False)
     api.bind(EXAMPLE, lambda caller: GoodImpl())
     caller = api.caller(None)
@@ -299,6 +308,7 @@ def test_caller_records_gather_and_error_policy() -> None:
 
 
 def test_docs_snapshot_and_diff_cover_contract_catalog(tmp_path: Path) -> None:
+    """Docs, snapshots, and diffs cover contract catalog metadata."""
     api = UseCaseAPI[None]()
     api.bind(EXAMPLE, lambda caller: GoodImpl(), uses=(EMPTY,))
     api.bind(EMPTY, lambda caller: EmptyImpl())
@@ -379,6 +389,7 @@ def test_docs_snapshot_and_diff_cover_contract_catalog(tmp_path: Path) -> None:
 
 
 def test_scaffold_boundaries_and_dry_run(tmp_path: Path) -> None:
+    """Scaffold validates boundary cases and does not write files in dry-run mode."""
     with pytest.raises(ValueError, match="version"):
         scaffold_usecase(ScaffoldOptions(name="orders.create", version=0))
     with pytest.raises(ValueError, match="from_version"):
@@ -456,6 +467,7 @@ def test_cli_commands_validate_service_surface(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
+    """CLI commands inspect, document, diff, and scaffold a service surface."""
     example_root = Path(__file__).parents[1] / "examples" / "basic"
     sys.path.insert(0, str(example_root))
     try:
@@ -556,6 +568,7 @@ def test_cli_import_path_errors_and_main_module(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
+    """CLI reports invalid import paths and supports module execution."""
     with pytest.raises(ValueError, match="module:attribute"):
         main(["check", "not-an-import-path"])
     with pytest.raises(TypeError, match="UseCaseAPI"):
@@ -583,6 +596,7 @@ def test_cli_import_path_errors_and_main_module(
 
 
 def test_usecase_error_serialization() -> None:
+    """UseCaseError serializes code, message, type, and public details."""
     error = OtherError("domain failed")
     cast(Any, error).reason = "inventory"
 

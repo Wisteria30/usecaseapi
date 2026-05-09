@@ -1,0 +1,1 @@
+"""Checkout usecase contract package."""

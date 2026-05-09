@@ -1,0 +1,1 @@
+"""Check availability contract package."""

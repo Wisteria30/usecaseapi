@@ -85,37 +85,125 @@ exclude-newer = "P7D"
 trusted-publishing = "always"
 
 [tool.pytest.ini_options]
-addopts = "-q"
-testpaths = ["tests"]
-pythonpath = ["src"]
+# parametrizeの並列実行を有効にする
+# addopts = "--tb=short --randomly-dont-reset-seed -n auto"
+# addopts = "--tb=short --randomly-dont-reset-seed"  # for debug
+filterwarnings = [
+  "ignore::DeprecationWarning"
+]
+# 結果を日本語で見れるようにする
+disable_test_id_escaping_and_forfeit_all_rights_to_community_support = true
+markers = [
+    "integration: marks tests as integration tests (requires external services such as PostgreSQL or network APIs)",
+    "e2e: marks tests as end-to-end tests that exercise deployed or subprocess services",
+]
 
 [tool.coverage.run]
 source = ["usecaseapi"]
 
 [tool.mypy]
-python_version = "3.12"
-strict = true
-mypy_path = "src:examples/basic"
-files = ["src", "tests", "examples/basic"]
-plugins = ["pydantic.mypy"]
-warn_unused_configs = true
-warn_unreachable = true
+python_version = "3.13"
+mypy_path = ["src", "examples/basic"]
+files = ["src", "tests", "examples/basic", "scripts"]
+
+# importは追う
+follow_imports = "normal"
+namespace_packages = true
+explicit_package_bases = true
+
+# ここは全体では緩めない
+ignore_missing_imports = false
+ignore_errors = false
+
+# error control
+pretty = true
 show_error_codes = true
+show_column_numbers = true
+show_error_context = true
+warn_unused_configs = true
+
+# まずは strict を土台にする
+strict = true
+warn_unreachable = true
+
+# strict だけでは足りない Any 締め
+disallow_any_explicit = false
+disallow_any_expr = false
+disallow_any_unimported = false
+disallow_any_decorated = false
+
+# 追加で好み
+no_implicit_optional = true
+strict_equality_for_none = true
+allow_redefinition = false
+warn_unused_ignores = true
+
+# pydantic v2 plugin
+plugins = ["pydantic.mypy"]
+
+[tool.pydantic-mypy]
+init_forbid_extra = true
+init_typed = true
+warn_required_dynamic_aliases = true
+warn_untyped_fields = true
 
 [tool.ruff]
-target-version = "py312"
 line-length = 100
-src = ["src", "tests", "examples/basic"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "B", "UP", "SIM", "RUF"]
-ignore = [
-  "RUF012",
-  "UP046",
-  "UP047"
+preview = true
+select = [
+  "E", # pycodestyle errors
+  "W", # pycodestyle warnings
+  "F", # pyflakes
+  "I", # isort
+  "B", # flake8-bugbear
+  "UP", # pyupgrade
+  "D", # pydocstyle
+  "C", # mccabe
+  # exception周り
+  "TRY400", # exception handler内でlogging.error()を使っている → logging.exception()を使うべき
+  "LOG004", # logging.exception()をexception handler外で使っているのを検出
+  "LOG007", # logging.exception(exc_info=False)の検出（exc_infoをFalseにしない）
+  "LOG014", # exc_info=をexception handler外で使っているの検出
+  "G010", # logging.warnを検出（logging.warningを使うべき）
+  "G201" # Checks for uses of logging.error that pass exc_info=True.
 ]
+ignore = [
+  "E203", # black treats : as a binary operator
+  "E231", # black doesn't put a space after
+  "E501", # line too long, handled by black
+  "B008", # do not perform function calls in argument defaults
+  "D203", # conflicts with D211
+  "D213", # conflicts with D212
+]
+fixable = ["ALL"]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 10
+
+[tool.ruff.lint.isort]
+known-first-party = []
+split-on-trailing-comma = true
+force-wrap-aliases = true
+combine-as-imports = true
+lines-between-types = 1
+
+# FastAPIのDepends/QueryがB008に引っかかる定番回避
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = [
+  "fastapi.Depends",
+  "fastapi.params.Depends",
+  "fastapi.Query",
+  "fastapi.params.Query",
+]
+
+[tool.ruff.lint.extend-per-file-ignores]
+# テストケースのファイル名にtest_が含まれる場合、F811 と D101/D102 を無視する
+"**/test_*.py" = ["F811", "D101", "D102"]
+# Alembic 自動生成コードは docstring / import order を免除
+"alembic/**" = ["D100", "D103", "D104", "I001"]
 
 [tool.ruff.format]
 quote-style = "double"
 indent-style = "space"
-line-ending = "auto"

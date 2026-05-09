@@ -1,0 +1,1 @@
+"""Inventory contract domain package."""

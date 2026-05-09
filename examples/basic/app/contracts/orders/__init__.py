@@ -1,0 +1,1 @@
+"""Orders contract domain package."""
