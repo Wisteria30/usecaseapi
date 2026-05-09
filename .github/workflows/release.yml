@@ -14,25 +14,33 @@ jobs:
       id-token: write
       contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
-      - name: Install Python
-        run: uv python install 3.13
+        uses: astral-sh/setup-uv@v8.1.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+          cache-suffix: release-python-3.13
       - name: Sync dependencies
-        run: uv sync --extra dev --python 3.13
+        run: uv sync --frozen --extra dev
       - name: Test
-        run: uv run --python 3.13 coverage run -m pytest
+        run: uv run coverage run -m pytest
       - name: Coverage
-        run: uv run --python 3.13 coverage report -m
+        run: uv run coverage report -m
       - name: Mypy
-        run: uv run --python 3.13 mypy
+        run: uv run mypy
       - name: Ruff
-        run: uv run --python 3.13 ruff check .
+        run: uv run ruff check .
       - name: Build
         run: uv build
       - name: Check distribution metadata
-        run: uv run --python 3.13 twine check dist/*
+        run: uv run twine check dist/*
       - name: Verify wheel installation
         run: uv run --isolated --no-project --with dist/*.whl scripts/verify_distribution.py
       - name: Verify source distribution installation

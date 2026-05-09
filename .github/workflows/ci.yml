@@ -5,32 +5,93 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
-    name: Python ${{ matrix.python-version }}
+    name: Test Python ${{ matrix.python-version }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         python-version: ["3.12", "3.13", "3.14"]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
-      - name: Install Python
-        run: uv python install ${{ matrix.python-version }}
+        uses: astral-sh/setup-uv@v8.1.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+          cache-suffix: test-python-${{ matrix.python-version }}
       - name: Sync dependencies
-        run: uv sync --extra dev --python ${{ matrix.python-version }}
+        run: uv sync --frozen --extra dev
       - name: Test
-        run: uv run --python ${{ matrix.python-version }} coverage run -m pytest
+        run: uv run coverage run -m pytest
       - name: Coverage
         run: |
-          uv run --python ${{ matrix.python-version }} coverage report -m
-          uv run --python ${{ matrix.python-version }} coverage json
-          PYTHON_VERSION=${{ matrix.python-version }} uv run --python ${{ matrix.python-version }} python scripts/write_coverage_summary.py
+          uv run coverage report -m
+          uv run coverage json
+          PYTHON_VERSION=${{ matrix.python-version }} uv run python scripts/write_coverage_summary.py
+
+  quality:
+    name: Quality
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.1.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+          cache-suffix: quality-python-3.13
+      - name: Sync dependencies
+        run: uv sync --frozen --extra dev
       - name: Mypy
-        run: uv run --python ${{ matrix.python-version }} mypy
+        run: uv run mypy
       - name: Ruff
-        run: uv run --python ${{ matrix.python-version }} ruff check .
+        run: uv run ruff check .
+
+  package:
+    name: Package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.1.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+          cache-suffix: package-python-3.13
+      - name: Sync dependencies
+        run: uv sync --frozen --extra dev
       - name: Build
         run: uv build
+      - name: Check distribution metadata
+        run: uv run twine check dist/*
+      - name: Verify wheel installation
+        run: uv run --isolated --no-project --with dist/*.whl scripts/verify_distribution.py
+      - name: Verify source distribution installation
+        run: uv run --isolated --no-project --with dist/*.tar.gz scripts/verify_distribution.py
