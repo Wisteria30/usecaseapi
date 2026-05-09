@@ -1,11 +1,15 @@
+"""Write a Markdown coverage summary for GitHub Actions."""
+
 from __future__ import annotations
 
 import json
 import os
+
 from pathlib import Path
 
 
 def main() -> int:
+    """Render coverage.json into a GitHub step summary or stdout."""
     report = json.loads(Path("coverage.json").read_text())
     total = report["totals"]["percent_covered_display"]
     python_version = os.environ.get("PYTHON_VERSION", "local")

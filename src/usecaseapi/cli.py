@@ -1,8 +1,11 @@
+"""Command-line interface for inspecting and scaffolding UseCaseAPI projects."""
+
 from __future__ import annotations
 
 import argparse
 import importlib
 import json
+
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, cast
@@ -14,6 +17,7 @@ from .snapshot import diff_snapshots, load_snapshot, snapshot_from_api
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    """Run the command-line interface and return a process exit code."""
     parser = _build_parser()
     args = parser.parse_args(argv)
     command = cast(str, args.command)

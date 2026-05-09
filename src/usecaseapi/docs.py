@@ -1,3 +1,5 @@
+"""Markdown and Mermaid renderers for registered usecase contracts."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -8,7 +10,6 @@ from .contracts import UseCaseRef
 
 def render_markdown(api: UseCaseAPI[Any]) -> str:
     """Render registered usecases as human-readable Markdown."""
-
     bindings = {binding.ref.key: binding for binding in api.bindings}
     lines: list[str] = ["# UseCaseAPI Contracts", ""]
     for ref in sorted(api.contracts, key=lambda item: item.key):
@@ -62,7 +63,6 @@ def render_markdown(api: UseCaseAPI[Any]) -> str:
 
 def render_mermaid(api: UseCaseAPI[Any]) -> str:
     """Render declared usecase dependencies as a Mermaid graph."""
-
     lines = ["flowchart TD"]
     for ref in sorted(api.contracts, key=lambda item: item.key):
         node = _node_id(ref.key)

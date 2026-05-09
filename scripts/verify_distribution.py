@@ -1,8 +1,11 @@
+"""Verify that a built distribution works after installation."""
+
 from __future__ import annotations
 
 import asyncio
 import subprocess
 import tempfile
+
 from pathlib import Path
 from typing import Protocol
 
@@ -10,15 +13,23 @@ from usecaseapi import Contract, Model, UseCase, UseCaseAPI, UseCaseRef, define_
 
 
 class Input(Model):
+    """Input for the distribution verification usecase."""
+
     value: int
 
 
 class Output(Model):
+    """Output for the distribution verification usecase."""
+
     value: int
 
 
 class Increment(UseCase[Input, Output], Protocol):
-    async def __call__(self, input: Input, /) -> Output: ...
+    """Protocol used to verify runtime calls."""
+
+    async def __call__(self, input: Input, /) -> Output:
+        """Increment the input value."""
+        ...
 
 
 INCREMENT: UseCaseRef[Input, Output] = define_usecase(
@@ -28,7 +39,10 @@ INCREMENT: UseCaseRef[Input, Output] = define_usecase(
 
 
 class IncrementImpl:
+    """Implementation used by the distribution verification script."""
+
     async def __call__(self, input: Input, /) -> Output:
+        """Increment the input value."""
         return Output(value=input.value + 1)
 
 
@@ -64,6 +78,7 @@ def _verify_cli_scaffold() -> None:
 
 
 def main() -> int:
+    """Run distribution verification checks."""
     asyncio.run(_verify_runtime())
     _verify_cli_scaffold()
     return 0

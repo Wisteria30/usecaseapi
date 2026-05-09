@@ -1,10 +1,13 @@
+"""Runtime registry and caller implementation for UseCaseAPI contracts."""
+
 from __future__ import annotations
 
 import asyncio
 import inspect
+
 from collections.abc import Awaitable, Callable, Iterable, Sequence
 from dataclasses import dataclass, field
-from typing import Any, Generic, TypeVar, cast, get_type_hints
+from typing import Any, TypeVar, cast, get_type_hints
 
 from .contracts import InputT, OutputT, UseCase, UseCaseRef
 from .errors import (
@@ -22,7 +25,7 @@ HandlerFactory = Callable[["Caller[Any]"], UseCase[Any, Any]]
 
 
 @dataclass(frozen=True, slots=True)
-class Binding(Generic[ContextT]):
+class Binding[ContextT]:
     """A runtime connection between a contract token and an implementation factory."""
 
     ref: UseCaseRef[Any, Any]
@@ -40,7 +43,7 @@ class CallRecord:
     callee_key: str
 
 
-class UseCaseAPI(Generic[ContextT]):
+class UseCaseAPI[ContextT]:
     """Registry and contract runtime for same-process usecase calls.
 
     This class is not a DI container. It keeps contract bindings and creates
@@ -54,6 +57,7 @@ class UseCaseAPI(Generic[ContextT]):
         strict_errors: bool = True,
         validate_handlers: bool = True,
     ) -> None:
+        """Create a registry with dependency, error, and handler validation options."""
         self.strict_dependencies = strict_dependencies
         self.strict_errors = strict_errors
         self.validate_handlers = validate_handlers
@@ -63,7 +67,6 @@ class UseCaseAPI(Generic[ContextT]):
 
     def register(self, *refs: UseCaseRef[Any, Any]) -> UseCaseAPI[ContextT]:
         """Register contracts without binding implementations yet."""
-
         for ref in refs:
             existing = self._contracts.get(ref.key)
             if existing is not None and existing is not ref:
@@ -86,7 +89,6 @@ class UseCaseAPI(Generic[ContextT]):
         ``factory`` receives the current ``Caller`` and returns a callable object
         that structurally conforms to the contract Protocol.
         """
-
         self.register(ref)
         if ref.key in self._bindings and not replace:
             raise DuplicateUseCaseError(f"duplicate binding for {ref.key!r}")
@@ -104,7 +106,6 @@ class UseCaseAPI(Generic[ContextT]):
 
     def caller(self, context: ContextT) -> Caller[ContextT]:
         """Create a caller for a host-application context."""
-
         return Caller(api=self, context=context, current_key=None, records=[])
 
     def validate(self, *, require_handlers: bool = True) -> None:
@@ -113,7 +114,6 @@ class UseCaseAPI(Generic[ContextT]):
         Handler signatures are validated lazily when a factory produces a handler,
         because UseCaseAPI deliberately does not own construction lifecycles.
         """
-
         if require_handlers:
             missing = sorted(set(self._contracts) - set(self._bindings))
             if missing:
@@ -127,10 +127,12 @@ class UseCaseAPI(Generic[ContextT]):
 
     @property
     def contracts(self) -> tuple[UseCaseRef[Any, Any], ...]:
+        """Registered contract references in insertion order."""
         return tuple(self._contracts.values())
 
     @property
     def bindings(self) -> tuple[Binding[ContextT], ...]:
+        """Registered implementation bindings in insertion order."""
         return tuple(self._bindings.values())
 
     def _get_binding(self, ref: UseCaseRef[Any, Any]) -> Binding[ContextT]:
@@ -183,7 +185,7 @@ class UseCaseAPI(Generic[ContextT]):
         self._validated_handler_types.add(cache_key)
 
 
-class Caller(Generic[ContextT]):
+class Caller[ContextT]:
     """Context-bound caller used to invoke usecase contracts."""
 
     def __init__(
@@ -194,6 +196,7 @@ class Caller(Generic[ContextT]):
         current_key: str | None,
         records: list[CallRecord],
     ) -> None:
+        """Create a context-bound caller used by the registry internals."""
         self._api = api
         self.context = context
         self._current_key = current_key
@@ -201,7 +204,6 @@ class Caller(Generic[ContextT]):
 
     async def call(self, ref: UseCaseRef[InputT, OutputT], input: InputT, /) -> OutputT:
         """Call a usecase by contract token."""
-
         if self._current_key is not None and self._api.strict_dependencies:
             parent = self._api._get_binding_by_key(self._current_key)
             if ref.key not in parent.uses:
@@ -240,7 +242,6 @@ class Caller(Generic[ContextT]):
 
     async def gather(self, *awaitables: Awaitable[Any]) -> tuple[Any, ...]:
         """Run multiple usecase calls concurrently and preserve ExceptionGroup semantics."""
-
         results: list[Any] = [None] * len(awaitables)
 
         async def run_one(index: int, awaitable: Awaitable[Any]) -> None:
@@ -253,6 +254,7 @@ class Caller(Generic[ContextT]):
 
     @property
     def records(self) -> tuple[CallRecord, ...]:
+        """Runtime call records captured by this caller."""
         return tuple(self._records)
 
     def _validate_exception(self, ref: UseCaseRef[Any, Any], exc: BaseException) -> None:

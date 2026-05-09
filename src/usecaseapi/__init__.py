@@ -1,3 +1,5 @@
+"""Public package exports for UseCaseAPI."""
+
 from __future__ import annotations
 
 from .api import Binding, Caller, CallRecord, UseCaseAPI

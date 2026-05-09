@@ -7,6 +7,8 @@ on:
 
 permissions:
   contents: read
+  issues: write
+  pull-requests: write
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -43,6 +45,67 @@ jobs:
           uv run coverage report -m
           uv run coverage json
           PYTHON_VERSION=${{ matrix.python-version }} uv run python scripts/write_coverage_summary.py
+      - name: Store coverage report
+        run: |
+          mkdir -p coverage-artifacts
+          cp coverage.json coverage-artifacts/coverage-${{ matrix.python-version }}.json
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: coverage-python-${{ matrix.python-version }}
+          path: coverage-artifacts/coverage-${{ matrix.python-version }}.json
+          if-no-files-found: error
+          retention-days: 7
+
+  coverage-report:
+    name: Coverage PR Report
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.1.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+          cache-suffix: coverage-report-python-3.13
+      - name: Sync dependencies
+        run: uv sync --frozen --extra dev
+      - name: Download PR coverage report
+        uses: actions/download-artifact@v7
+        with:
+          name: coverage-python-3.13
+          path: coverage-pr
+      - name: Check out base revision
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: coverage-base-checkout
+          persist-credentials: false
+      - name: Generate base coverage report
+        run: |
+          mkdir -p coverage-base
+          cd coverage-base-checkout
+          uv sync --frozen --extra dev --python 3.13
+          uv run --python 3.13 coverage run -m pytest
+          uv run --python 3.13 coverage json -o ../coverage-base/coverage-3.13.json
+      - name: Comment coverage before and after
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          uv run --python 3.13 python scripts/write_coverage_pr_comment.py \
+            --base coverage-base/coverage-3.13.json \
+            --head coverage-pr/coverage-3.13.json \
+            --python-version 3.13 \
+            --repository "${{ github.repository }}" \
+            --pr-number "${{ github.event.pull_request.number }}"
 
   quality:
     name: Quality

@@ -1,6 +1,9 @@
+"""Snapshot, documentation, and scaffold behavior tests."""
+
 from __future__ import annotations
 
 import json
+
 from pathlib import Path
 from typing import Protocol
 
@@ -34,6 +37,7 @@ class ExampleImpl:
 
 
 def test_snapshot_docs_and_graph() -> None:
+    """Snapshot, Markdown docs, and Mermaid graph include the registered contract."""
     api = UseCaseAPI[None]()
     api.bind(EXAMPLE, lambda caller: ExampleImpl())
 
@@ -49,6 +53,7 @@ def test_snapshot_docs_and_graph() -> None:
 
 
 def test_snapshot_diff_detects_schema_change() -> None:
+    """Snapshot diff reports changed output schemas as breaking changes."""
     old = {
         "schema_version": 1,
         "usecases": [
@@ -71,6 +76,7 @@ def test_snapshot_diff_detects_schema_change() -> None:
 
 
 def test_scaffold_creates_versioned_contract_and_implementation(tmp_path: Path) -> None:
+    """Scaffold creates a versioned contract, implementation, and test file."""
     result = scaffold_usecase(
         ScaffoldOptions(
             name="orders.place_order",
@@ -93,6 +99,7 @@ def test_scaffold_creates_versioned_contract_and_implementation(tmp_path: Path) 
 
 
 def test_scaffold_next_version_uses_highest_existing_major(tmp_path: Path) -> None:
+    """Scaffold chooses the next major version after existing version files."""
     contracts_root = tmp_path / "app" / "contracts"
     existing_dir = contracts_root / "orders" / "place_order"
     existing_dir.mkdir(parents=True)
@@ -115,6 +122,7 @@ def test_scaffold_next_version_uses_highest_existing_major(tmp_path: Path) -> No
 
 
 def test_scaffold_auto_next_version(tmp_path: Path) -> None:
+    """Scaffold automatically increments versions and skips existing implementations."""
     first = scaffold_usecase(
         ScaffoldOptions(
             name="orders.refund_order",
@@ -140,6 +148,7 @@ def test_scaffold_auto_next_version(tmp_path: Path) -> None:
 
 
 def test_scaffold_from_version_copies_previous_contract(tmp_path: Path) -> None:
+    """Scaffold can copy a previous contract version and update metadata."""
     scaffold_usecase(
         ScaffoldOptions(
             name="orders.cancel_order",

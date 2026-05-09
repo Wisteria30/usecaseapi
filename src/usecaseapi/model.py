@@ -1,3 +1,5 @@
+"""Pydantic model base class exported by UseCaseAPI."""
+
 from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict

@@ -1,3 +1,5 @@
+"""Framework and domain error classes used by UseCaseAPI."""
+
 from __future__ import annotations
 
 from collections.abc import Mapping
@@ -29,6 +31,7 @@ class UndeclaredUseCaseDependencyError(UseCaseAPIError):
     """Raised when a usecase calls another usecase that was not declared in ``uses``."""
 
     def __init__(self, *, caller_key: str, callee_key: str) -> None:
+        """Create an undeclared dependency error for a caller and callee pair."""
         self.caller_key = caller_key
         self.callee_key = callee_key
         super().__init__(f"{caller_key!r} attempted to call undeclared dependency {callee_key!r}")
@@ -38,6 +41,7 @@ class UndeclaredUseCaseError(UseCaseAPIError):
     """Raised when a handler leaks a domain error outside its declared raises contract."""
 
     def __init__(self, *, usecase_key: str, error: UseCaseError) -> None:
+        """Create an undeclared domain error wrapper."""
         self.usecase_key = usecase_key
         self.error = error
         super().__init__(
@@ -59,12 +63,10 @@ class UseCaseError(Exception):
     @property
     def details(self) -> Mapping[str, Any]:
         """Public attributes attached to this domain exception."""
-
         return MappingProxyType(dict(self.__dict__))
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-friendly representation useful for docs, logs, or catalogs."""
-
         return {
             "type": f"{type(self).__module__}.{type(self).__qualname__}",
             "code": self.code,

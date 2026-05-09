@@ -1,6 +1,9 @@
+"""Scaffold versioned usecase contracts, implementations, and tests."""
+
 from __future__ import annotations
 
 import re
+
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -44,14 +47,7 @@ class ScaffoldOptions:
 
 def scaffold_usecase(options: ScaffoldOptions) -> ScaffoldResult:
     """Create contract, implementation, and optional test files for one usecase."""
-
-    if options.version is not None and options.version < 1:
-        raise ValueError("version must be >= 1")
-    if options.from_version is not None and options.from_version < 1:
-        raise ValueError("from_version must be >= 1")
-    if _USECASE_NAME.fullmatch(options.name) is None:
-        raise ValueError("usecase name must look like 'domain.use_case'")
-
+    _validate_options(options)
     parts = options.name.split(".")
     domain_parts = parts[:-1]
     usecase_name = parts[-1]
@@ -134,6 +130,15 @@ def scaffold_usecase(options: ScaffoldOptions) -> ScaffoldResult:
             )
 
     return ScaffoldResult(files=tuple(created), skipped=tuple(skipped), version=version)
+
+
+def _validate_options(options: ScaffoldOptions) -> None:
+    if options.version is not None and options.version < 1:
+        raise ValueError("version must be >= 1")
+    if options.from_version is not None and options.from_version < 1:
+        raise ValueError("from_version must be >= 1")
+    if _USECASE_NAME.fullmatch(options.name) is None:
+        raise ValueError("usecase name must look like 'domain.use_case'")
 
 
 def _resolve_version(

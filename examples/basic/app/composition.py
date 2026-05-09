@@ -1,3 +1,5 @@
+"""Composition root for the basic UseCaseAPI example application."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -13,6 +15,8 @@ from usecaseapi import UseCaseAPI
 
 @dataclass(frozen=True)
 class AppContext:
+    """Runtime context shared by example usecase implementations."""
+
     store: InventoryStore
 
 
