@@ -22,7 +22,12 @@ jobs:
       - name: Sync dependencies
         run: uv sync --extra dev --python ${{ matrix.python-version }}
       - name: Test
-        run: uv run --python ${{ matrix.python-version }} pytest
+        run: uv run --python ${{ matrix.python-version }} coverage run -m pytest
+      - name: Coverage
+        run: |
+          uv run --python ${{ matrix.python-version }} coverage report -m
+          uv run --python ${{ matrix.python-version }} coverage json
+          PYTHON_VERSION=${{ matrix.python-version }} uv run --python ${{ matrix.python-version }} python scripts/write_coverage_summary.py
       - name: Mypy
         run: uv run --python ${{ matrix.python-version }} mypy
       - name: Ruff

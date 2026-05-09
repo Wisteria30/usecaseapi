@@ -8,6 +8,8 @@ on:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    environment:
+      name: pypi
     permissions:
       id-token: write
       contents: read
@@ -20,12 +22,20 @@ jobs:
       - name: Sync dependencies
         run: uv sync --extra dev --python 3.13
       - name: Test
-        run: uv run --python 3.13 pytest
+        run: uv run --python 3.13 coverage run -m pytest
+      - name: Coverage
+        run: uv run --python 3.13 coverage report -m
       - name: Mypy
         run: uv run --python 3.13 mypy
       - name: Ruff
         run: uv run --python 3.13 ruff check .
       - name: Build
         run: uv build
+      - name: Check distribution metadata
+        run: uv run --python 3.13 twine check dist/*
+      - name: Verify wheel installation
+        run: uv run --isolated --no-project --with dist/*.whl scripts/verify_distribution.py
+      - name: Verify source distribution installation
+        run: uv run --isolated --no-project --with dist/*.tar.gz scripts/verify_distribution.py
       - name: Publish
         run: uv publish
