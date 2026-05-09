@@ -19,8 +19,6 @@ from .model import Model
 from .scaffold import ScaffoldOptions, ScaffoldResult, scaffold_usecase
 from .snapshot import ContractDiff, diff_snapshots, load_snapshot, snapshot_from_api, write_snapshot
 
-__version__ = "1.0.0"
-
 __all__ = [
     "Binding",
     "CallRecord",
