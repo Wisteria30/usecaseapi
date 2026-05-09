@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "usecaseapi"
 version = "1.0.0"
-description = "Protocol-first, graph-aware, same-process UseCase API contracts for Python."
+description = "FastAPI-style contracts for Python application use cases."
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]

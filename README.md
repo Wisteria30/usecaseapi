@@ -1,10 +1,14 @@
 # UseCaseAPI
 
-UseCaseAPI is a Protocol-first Python library for treating same-process usecases as a real, versioned application API.
+FastAPI-style contracts for Python application use cases.
 
-It is inspired by the developer experience of FastAPI, but it is not a web framework. FastAPI turns Python type hints into a public HTTP API contract. UseCaseAPI turns Python Protocols, Pydantic models, and real Python exception classes into a public contract for your application layer, without forcing HTTP, RPC, serialization, or a dependency-injection container into the hot path.
+UseCaseAPI brings code-first contract clarity to same-process Python use cases. Define contracts with Python Protocols, Pydantic models, and domain exceptions, then bind them to implementations without making HTTP the boundary.
 
-UseCaseAPI is designed for applications with many internal usecase nodes: workflow-like systems, ROS-like node composition, AI-agent tool surfaces, batch workers, CLIs, FastAPI/Django backends, and systems where AI-assisted coding makes accidental breaking changes easier than before.
+Add it when your application has internal use case nodes that need stable names, versions, input/output schemas, declared dependencies, and contract snapshots. It helps teams and AI coding agents see what can be called, what can fail, and whether a change broke an application-layer contract before that break ships.
+
+It is inspired by the developer experience of FastAPI, but it is not a web framework. FastAPI turns Python type hints into a public HTTP API contract. UseCaseAPI turns Python type definitions into public contracts for your application layer, without forcing HTTP, RPC, serialization, or a dependency-injection container into the hot path.
+
+UseCaseAPI is designed for applications with many internal use case nodes: workflow-like systems, ROS-like node composition, AI-agent tool surfaces, batch workers, CLIs, FastAPI/Django backends, and systems where AI-assisted coding makes accidental breaking changes easier than before.
 
 ## What it gives you
 
