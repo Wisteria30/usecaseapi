@@ -33,8 +33,9 @@ Create a context at job or command start, then call usecases through the caller.
 UseCaseAPI contracts can be exported as a catalog for an agent runtime. The catalog
 is documentation and selection metadata; it is not the source of truth.
 
-Use `snapshot_from_api(api)` to list contract names, versions, input and output
-schemas, public error boundaries, known leaf errors, and declared graph edges.
+Use `manifest_from_api(api)` or `usecaseapi manifest export` to list contract names,
+versions, input and output schemas, public error boundaries, known leaf errors, and
+declared graph edges.
 An agent adapter can map a selected tool back to a same-process
 `caller.call(USECASE_REF, input)` call.
 

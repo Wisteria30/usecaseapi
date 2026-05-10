@@ -23,19 +23,21 @@ ctx = AppContext(...)
 output = await usecases.caller(ctx).call(PLACE_ORDER_USECASE, input)
 ```
 
-## Snapshot tests
+## Manifest tests
 
-Generate and compare snapshots in CI:
+Generate and validate the canonical Manifest in CI:
 
 ```bash
-usecaseapi snapshot composition:usecases --output usecaseapi.snapshot.json
-git diff --exit-code usecaseapi.snapshot.json
+usecaseapi manifest export composition:usecases --output usecaseapi.ucase.yaml
+usecaseapi manifest validate usecaseapi.ucase.yaml
+usecaseapi manifest check-sync composition:usecases usecaseapi.ucase.yaml
+git diff --exit-code usecaseapi.ucase.yaml
 ```
 
 ## Breaking-change checks
 
 ```bash
-usecaseapi diff old-snapshot.json new-snapshot.json
+usecaseapi diff old.ucase.yaml new.ucase.yaml
 ```
 
-The diff is intentionally conservative. If the same stable version changes input or output schema, it reports a breaking change.
+The diff is intentionally conservative. If the same stable version changes input or output models, fields, or declared errors, it reports a breaking change.

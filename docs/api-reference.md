@@ -66,14 +66,26 @@ results = await caller.gather(caller.call(A, a), caller.call(B, b))
 
 `Caller.gather` uses `asyncio.TaskGroup`, so multiple failures preserve Python `ExceptionGroup` behavior.
 
-## `snapshot_from_api(api)`
+## `manifest_from_api(api)`
 
-Creates a JSON-serializable snapshot for CI and docs.
+Creates a YAML-friendly Manifest catalog from a registered `UseCaseAPI` instance.
 
-## `diff_snapshots(old, new)`
+## `load_manifest(path)` / `dump_manifest(manifest, path)`
+
+Loads and writes validated `.ucase.yaml` Manifest files.
+
+## `validate_manifest(manifest)`
+
+Validates Manifest shape, type expression syntax, error boundaries, model references, and usecase keys.
+
+## `scaffold_from_manifest(manifest)`
+
+Generates Python contract and implementation skeletons from Manifest entries.
+
+## `diff_manifests(old, new)`
 
 Performs conservative breaking-change detection.
 
-## `render_markdown(api)` / `render_mermaid(api)`
+## `render_manifest_markdown(manifest)` / `render_manifest_graph(manifest)`
 
-Renders human-readable docs and graph diagrams.
+Renders human-readable docs and graph diagrams from Manifest data.

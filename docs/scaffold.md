@@ -51,5 +51,5 @@ Use `--force` to overwrite generated files. Use `--dry-run` to print what would 
 The generated test includes a structural Protocol assignment so mypy/pyright can verify that the implementation conforms to the contract:
 
 ```python
-usecase: PlaceOrder = PlaceOrderUseCase()
+_impl: PlaceOrder = PlaceOrderImpl()
 ```

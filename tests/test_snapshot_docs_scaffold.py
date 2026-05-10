@@ -1,18 +1,14 @@
-"""Snapshot, documentation, and scaffold behavior tests."""
+"""Scaffold behavior tests."""
 
 from __future__ import annotations
-
-import json
 
 from pathlib import Path
 from typing import Protocol
 
 import pytest
 
-from usecaseapi import Contract, Model, UseCase, UseCaseAPI, UseCaseRef, define_usecase
-from usecaseapi.docs import render_markdown, render_mermaid
+from usecaseapi import Contract, Model, UseCase, UseCaseRef, define_usecase
 from usecaseapi.scaffold import ScaffoldOptions, scaffold_usecase
-from usecaseapi.snapshot import diff_snapshots, snapshot_from_api
 
 
 class Input(Model):
@@ -36,45 +32,6 @@ EXAMPLE: UseCaseRef[Input, Output] = define_usecase(
 class ExampleImpl:
     async def __call__(self, input: Input, /) -> Output:
         return Output(value=input.value)
-
-
-def test_snapshot_docs_and_graph() -> None:
-    """Snapshot, Markdown docs, and Mermaid graph include the registered contract."""
-    api = UseCaseAPI[None]()
-    api.bind(EXAMPLE, lambda caller: ExampleImpl())
-
-    snapshot = snapshot_from_api(api)
-    assert snapshot["schema_version"] == 1
-    assert snapshot["usecases"][0]["key"] == "example.run@v1"
-
-    docs = render_markdown(api)
-    assert "example.run v1" in docs
-
-    graph = render_mermaid(api)
-    assert "example.run@v1" in graph
-
-
-def test_snapshot_diff_detects_schema_change() -> None:
-    """Snapshot diff reports changed output schemas as breaking changes."""
-    old = {
-        "schema_version": 1,
-        "usecases": [
-            {
-                "key": "example.run@v1",
-                "input": {"schema": {"type": "object", "properties": {}}},
-                "output": {"schema": {"type": "object", "properties": {}}},
-                "raises": [],
-                "uses": [],
-            }
-        ],
-    }
-    new = json.loads(json.dumps(old))
-    new["usecases"][0]["output"] = {"schema": {"type": "object", "properties": {"x": {}}}}
-
-    diff = diff_snapshots(old, new)
-
-    assert diff.has_breaking_changes
-    assert diff.breaking == ("changed output schema for example.run@v1",)
 
 
 def test_scaffold_creates_versioned_contract_and_implementation(

@@ -9,7 +9,7 @@ UseCaseAPI is built around one idea: a usecase should be treated as a versioned 
 3. **Exceptions are exceptions.** Domain errors are real `Exception` subclasses, so stack traces, inheritance, `except`, `except*`, and `ExceptionGroup` remain useful.
 4. **No DI container.** Host frameworks decide where request context, database sessions, transactions, tenants, actors, and credentials are created.
 5. **Same-process direct calls.** UseCaseAPI does not introduce HTTP, RPC, queues, or JSON serialization into the hot path.
-6. **Graph-aware.** Large systems need declared usecase dependencies, graph export, snapshots, and breaking-change detection.
+6. **Graph-aware.** Large systems need declared usecase dependencies, graph export, Manifest catalogs, and breaking-change detection.
 
 ## The contract shape
 

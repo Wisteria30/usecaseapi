@@ -14,11 +14,23 @@ import click
 import typer
 
 from .api import UseCaseAPI
-from .docs import render_markdown, render_mermaid
+from .manifest import (
+    diff_manifest_with_api,
+    diff_manifests,
+    dump_manifest,
+    load_manifest,
+    manifest_from_api,
+    manifest_to_yaml,
+    render_manifest_graph,
+    render_manifest_markdown,
+    scaffold_from_manifest,
+    validate_manifest,
+)
 from .scaffold import ScaffoldOptions, scaffold_usecase
-from .snapshot import diff_snapshots, load_snapshot, snapshot_from_api
 
 app = typer.Typer(help="Inspect and scaffold UseCaseAPI projects.", no_args_is_help=True)
+manifest_app = typer.Typer(help="Export, validate, scaffold, or check Manifest files.")
+app.add_typer(manifest_app, name="manifest")
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -84,40 +96,27 @@ def scaffold(
 def inspect(
     target: Annotated[str, typer.Argument(help="Import path like 'composition:usecases'")],
 ) -> None:
-    """Print a UseCaseAPI snapshot as JSON."""
+    """Print a UseCaseAPI Manifest as YAML."""
     api = _load_api(target)
-    typer.echo(json.dumps(snapshot_from_api(api), ensure_ascii=False, indent=2))
-
-
-@app.command()
-def snapshot(
-    target: Annotated[str, typer.Argument(help="Import path like 'composition:usecases'")],
-    output: Annotated[str | None, typer.Option("--output", "-o")] = None,
-) -> None:
-    """Write or print a UseCaseAPI snapshot."""
-    api = _load_api(target)
-    payload = json.dumps(snapshot_from_api(api), ensure_ascii=False, indent=2) + "\n"
-    _write_or_print(payload, output)
+    typer.echo(manifest_to_yaml(manifest_from_api(api)), nl=False)
 
 
 @app.command()
 def docs(
-    target: Annotated[str, typer.Argument(help="Import path like 'composition:usecases'")],
+    manifest: Annotated[Path, typer.Argument(help="Path to a .ucase.yaml Manifest")],
     output: Annotated[str | None, typer.Option("--output", "-o")] = None,
 ) -> None:
-    """Write or print Markdown docs for a UseCaseAPI instance."""
-    api = _load_api(target)
-    _write_or_print(render_markdown(api), output)
+    """Write or print Markdown docs from a UseCaseAPI Manifest."""
+    _write_or_print(render_manifest_markdown(load_manifest(manifest)), output)
 
 
 @app.command()
 def graph(
-    target: Annotated[str, typer.Argument(help="Import path like 'composition:usecases'")],
+    manifest: Annotated[Path, typer.Argument(help="Path to a .ucase.yaml Manifest")],
     output: Annotated[str | None, typer.Option("--output", "-o")] = None,
 ) -> None:
-    """Write or print a Mermaid graph for a UseCaseAPI instance."""
-    api = _load_api(target)
-    _write_or_print(render_mermaid(api), output)
+    """Write or print a Mermaid graph from a UseCaseAPI Manifest."""
+    _write_or_print(render_manifest_graph(load_manifest(manifest)), output)
 
 
 @app.command()
@@ -132,28 +131,121 @@ def check(
 
 @app.command()
 def diff(
-    old: Annotated[str, typer.Argument(help="Old snapshot path")],
-    new: Annotated[str, typer.Argument(help="New snapshot path")],
+    old: Annotated[Path, typer.Argument(help="Old Manifest path")],
+    new: Annotated[Path, typer.Argument(help="New Manifest path")],
     json_output: Annotated[bool, typer.Option("--json", help="Print JSON output")] = False,
 ) -> None:
-    """Compare two UseCaseAPI snapshots."""
-    contract_diff = diff_snapshots(load_snapshot(old), load_snapshot(new))
+    """Compare two UseCaseAPI Manifests."""
+    manifest_diff = diff_manifests(load_manifest(old), load_manifest(new))
     if json_output:
-        typer.echo(json.dumps(contract_diff.to_dict(), ensure_ascii=False, indent=2))
+        typer.echo(json.dumps(manifest_diff.to_dict(), ensure_ascii=False, indent=2))
     else:
-        for label, items in (
-            ("Breaking", contract_diff.breaking),
-            ("Warnings", contract_diff.warnings),
-            ("Additions", contract_diff.additions),
-        ):
-            typer.echo(label + ":")
-            if items:
-                for item in items:
-                    typer.echo(f"  - {item}")
-            else:
-                typer.echo("  - none")
-    if contract_diff.has_breaking_changes:
+        _echo_diff(manifest_diff.breaking, manifest_diff.warnings, manifest_diff.additions)
+    if manifest_diff.has_breaking_changes:
         raise typer.Exit(1)
+
+
+@manifest_app.command("export")
+def manifest_export(
+    target: Annotated[str, typer.Argument(help="Import path like 'composition:usecases'")],
+    output: Annotated[str | None, typer.Option("--output", "-o")] = None,
+    project: Annotated[str | None, typer.Option(help="Project name for Manifest metadata")] = None,
+    package: Annotated[
+        str | None, typer.Option(help="Python package name for layout metadata")
+    ] = None,
+    contracts_root: Annotated[
+        str,
+        typer.Option(help="Root used to trim contract source paths"),
+    ] = "app/contracts",
+    implementations_root: Annotated[
+        str,
+        typer.Option(help="Default implementation root for generated Manifest entries"),
+    ] = "app/usecases",
+    include_json_schema: Annotated[
+        bool,
+        typer.Option(help="Include Pydantic JSON schemas in the Manifest"),
+    ] = False,
+) -> None:
+    """Export a UseCaseAPI Manifest from a composed API object."""
+    api = _load_api(target)
+    manifest = manifest_from_api(
+        api,
+        project=project,
+        package=package,
+        contracts_root=contracts_root,
+        implementations_root=implementations_root,
+        include_json_schema=include_json_schema,
+    )
+    if output is None:
+        typer.echo(manifest_to_yaml(manifest), nl=False)
+        return
+    dump_manifest(manifest, output)
+
+
+@manifest_app.command("validate")
+def manifest_validate(
+    path: Annotated[Path, typer.Argument(help="Path to a .ucase.yaml Manifest")],
+) -> None:
+    """Validate a UseCaseAPI Manifest."""
+    validate_manifest(load_manifest(path))
+    typer.echo("UseCaseAPI manifest validation passed")
+
+
+@manifest_app.command("scaffold")
+def manifest_scaffold(
+    path: Annotated[Path, typer.Argument(help="Path to a .ucase.yaml Manifest")],
+    root: Annotated[Path, typer.Option(help="Root directory for generated files")] = Path("."),
+    force: Annotated[bool, typer.Option(help="Overwrite generated files")] = False,
+    dry_run: Annotated[bool, typer.Option(help="Print files without writing them")] = False,
+    no_implementation: Annotated[
+        bool,
+        typer.Option(help="Do not generate implementation skeletons"),
+    ] = False,
+) -> None:
+    """Generate Python contract and implementation skeletons from a Manifest."""
+    result = scaffold_from_manifest(
+        load_manifest(path),
+        root=root,
+        force=force,
+        dry_run=dry_run,
+        create_implementation=not no_implementation,
+    )
+    for file_path in result.files:
+        typer.echo(f"created: {file_path}")
+    for file_path in result.skipped:
+        typer.echo(f"skipped: {file_path}")
+
+
+@manifest_app.command("check-sync")
+def manifest_check_sync(
+    target: Annotated[str, typer.Argument(help="Import path like 'composition:usecases'")],
+    path: Annotated[Path, typer.Argument(help="Path to a .ucase.yaml Manifest")],
+) -> None:
+    """Check that code and a Manifest describe the same contract catalog."""
+    api = _load_api(target)
+    manifest_diff = diff_manifest_with_api(api, load_manifest(path))
+    if manifest_diff.has_breaking_changes or manifest_diff.warnings or manifest_diff.additions:
+        _echo_diff(manifest_diff.breaking, manifest_diff.warnings, manifest_diff.additions)
+        raise typer.Exit(1)
+    typer.echo("UseCaseAPI manifest is synchronized")
+
+
+def _echo_diff(
+    breaking: Sequence[str],
+    warnings: Sequence[str],
+    additions: Sequence[str],
+) -> None:
+    for label, items in (
+        ("Breaking", breaking),
+        ("Warnings", warnings),
+        ("Additions", additions),
+    ):
+        typer.echo(label + ":")
+        if items:
+            for item in items:
+                typer.echo(f"  - {item}")
+        else:
+            typer.echo("  - none")
 
 
 def _load_api(import_path: str) -> UseCaseAPI[Any]:
