@@ -10,6 +10,7 @@ coverage.*
 htmlcov/
 
 .venv/
+.codex/
 build/
 dist/
 *.egg-info/

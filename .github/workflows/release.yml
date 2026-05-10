@@ -79,6 +79,8 @@ jobs:
         run: uv run mypy
       - name: Ruff
         run: uv run ruff check .
+      - name: Ruff format
+        run: uv run ruff format --check .
       - name: Build
         run: uv build
       - name: Check distribution metadata
