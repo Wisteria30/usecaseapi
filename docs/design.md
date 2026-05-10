@@ -43,7 +43,7 @@ The host application controls the `ContextT` object. A FastAPI app may put reque
 A usecase binding can declare which other usecases it may call:
 
 ```python
-usecases.bind(CHECKOUT, lambda caller: CheckoutImpl(caller), uses=(PLACE_ORDER,))
+usecases.bind(CHECKOUT, lambda caller: CheckoutUseCase(caller), uses=(PLACE_ORDER,))
 ```
 
 In strict mode, calling an undeclared usecase from inside a handler raises `UndeclaredUseCaseDependencyError`.

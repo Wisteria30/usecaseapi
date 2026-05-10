@@ -50,7 +50,7 @@ Registry and runtime.
 ```python
 api = UseCaseAPI[AppContext]()
 api.register(PLACE_ORDER)
-api.bind(PLACE_ORDER, lambda caller: PlaceOrderImpl())
+api.bind(PLACE_ORDER, lambda caller: PlaceOrderUseCase())
 api.validate()
 caller = api.caller(context)
 ```

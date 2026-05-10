@@ -7,7 +7,7 @@ UseCaseAPI keeps tests simple because composition is explicit.
 In implementation modules, keep a structural assignment:
 
 ```python
-_impl: PlaceOrder = PlaceOrderImpl()
+_impl: PlaceOrder = PlaceOrderUseCase()
 ```
 
 Mypy and pyright can then verify the implementation shape.

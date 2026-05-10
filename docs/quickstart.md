@@ -5,7 +5,7 @@ UseCaseAPI starts with a contract module. A contract module is intentionally clo
 ## 1. Create a contract
 
 ```python
-# app/contracts/orders/place_order/v1.py
+# src/myapp/usecases/orders/place_order/v1/place_order_contract.py
 from __future__ import annotations
 
 from typing import ClassVar, Protocol
@@ -47,19 +47,19 @@ PLACE_ORDER: UseCaseRef[Input, Output] = define_usecase(
 ## 2. Implement it
 
 ```python
-# app/usecases/orders/place_order.py
-from app.contracts.orders.place_order.v1 import Input, Output, PlaceOrder
+# src/myapp/usecases/orders/place_order/v1/place_order_usecase.py
+from myapp.usecases.orders.place_order.v1.place_order_contract import Input, Output, PlaceOrder
 
 
-class PlaceOrderImpl:
+class PlaceOrderUseCase:
     async def __call__(self, input: Input, /) -> Output:
         return Output(order_id="ord_123")
 
 
-_impl: PlaceOrder = PlaceOrderImpl()
+_impl: PlaceOrder = PlaceOrderUseCase()
 ```
 
-`_impl: PlaceOrder = PlaceOrderImpl()` is intentionally boring. It lets mypy and pyright check that the implementation structurally conforms to the public contract.
+`_impl: PlaceOrder = PlaceOrderUseCase()` is intentionally boring. It lets mypy and pyright check that the implementation structurally conforms to the public contract.
 
 ## 3. Compose it
 
@@ -68,8 +68,8 @@ from dataclasses import dataclass
 
 from usecaseapi import UseCaseAPI
 
-from app.contracts.orders.place_order.v1 import PLACE_ORDER
-from app.usecases.orders.place_order import PlaceOrderImpl
+from myapp.usecases.orders.place_order.v1.place_order_contract import PLACE_ORDER
+from myapp.usecases.orders.place_order.v1.place_order_usecase import PlaceOrderUseCase
 
 
 @dataclass(frozen=True)
@@ -78,7 +78,7 @@ class AppContext:
 
 
 usecases = UseCaseAPI[AppContext]()
-usecases.bind(PLACE_ORDER, lambda caller: PlaceOrderImpl())
+usecases.bind(PLACE_ORDER, lambda caller: PlaceOrderUseCase())
 ```
 
 ## 4. Call it

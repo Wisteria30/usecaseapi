@@ -3,14 +3,14 @@
 UseCaseAPI uses explicit major versions.
 
 ```text
-app/contracts/{domain}/{usecase}/v{major}.py
+src/{package}/usecases/{namespace...}/{usecase}/v{major}/{usecase}_contract.py
 ```
 
 Examples:
 
 ```text
-app/contracts/orders/place_order/v1.py
-app/contracts/orders/place_order/v2.py
+src/myapp/usecases/orders/place_order/v1/place_order_contract.py
+src/myapp/usecases/orders/place_order/v2/place_order_contract.py
 ```
 
 The contract key is `name@v{major}`. There is no implicit `latest`.
