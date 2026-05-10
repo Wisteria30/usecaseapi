@@ -42,6 +42,7 @@ usecases:
     - name: quantity
       type: int
       required: true
+    description: Input required to check inventory availability.
   - name: CheckAvailabilityUseCaseOutput
     module: commerce.usecases.check_availability.v1.check_availability_contract
     fields:
@@ -51,6 +52,7 @@ usecases:
     - name: ok
       type: bool
       required: true
+    description: Inventory availability result.
   errors: []
   raises: []
   known_errors: []
@@ -90,12 +92,14 @@ usecases:
     - name: quantity
       type: int
       required: true
+    description: Input required to run checkout.
   - name: CheckoutUseCaseOutput
     module: commerce.usecases.checkout.v1.checkout_contract
     fields:
     - name: order_id
       type: str
       required: true
+    description: Checkout result returned to callers.
   errors: []
   raises: []
   known_errors: []
@@ -133,6 +137,7 @@ usecases:
     - name: quantity
       type: int
       required: true
+    description: Order item requested by the caller.
   - name: PlaceOrderUseCaseInput
     module: commerce.usecases.place_order.v1.place_order_contract
     fields:
@@ -142,6 +147,7 @@ usecases:
     - name: item
       type: Item
       required: true
+    description: Input required to place an order.
   - name: PlaceOrderUseCaseOutput
     module: commerce.usecases.place_order.v1.place_order_contract
     fields:
@@ -151,6 +157,7 @@ usecases:
     - name: status
       type: Literal['accepted']
       required: true
+    description: Accepted order result.
   errors:
   - name: PlaceOrderError
     module: commerce.usecases.place_order.v1.place_order_contract

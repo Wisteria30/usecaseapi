@@ -218,7 +218,9 @@ usecaseapi graph usecaseapi.ucase.yaml --output usecaseapi.mmd
 usecaseapi diff old.ucase.yaml new.ucase.yaml
 ```
 
-See [docs/scaffold.md](docs/scaffold.md) and [docs/manifest.md](docs/manifest.md) for generated layouts and options.
+See [docs/scaffold.md](docs/scaffold.md), [docs/manifest.md](docs/manifest.md), and
+[docs/llm-manifest-prompt.md](docs/llm-manifest-prompt.md) for generated layouts,
+Manifest syntax, and an LLM prompt for converging requirements into `usecaseapi.ucase.yaml`.
 
 ## Manifest docs and graph
 

@@ -216,6 +216,7 @@ def test_manifest_export_is_yaml_and_validates(tmp_path: Path) -> None:
     assert loaded["layout"]["package"] == "example"
     assert loaded["layout"]["implementations_root"] == "src"
     assert loaded["usecases"][0]["key"] == "example.run@v1"
+    assert loaded["usecases"][0]["models"][0]["description"] == "Input for the manifest example."
     assert loaded["usecases"][0]["source"]["implementation_class"] == "RunUseCase"
     assert loaded["usecases"][0]["source"]["implementation_file"] == (
         "src/example/usecases/run/v1/run_usecase.py"
@@ -733,6 +734,14 @@ def test_basic_example_manifest_is_generated_from_composition(
     )
 
     assert load_manifest(committed_path) == load_manifest(exported_path)
+
+    generated_root = tmp_path / "generated"
+    assert main(["manifest", "scaffold", str(committed_path), "--root", str(generated_root)]) == 0
+    generated_contract = (
+        generated_root / "src/commerce/usecases/place_order/v1/place_order_contract.py"
+    )
+    assert generated_contract.exists()
+    assert '"""Input required to place an order."""' in generated_contract.read_text()
 
 
 def test_manifest_cli_covers_error_and_stdout_branches(

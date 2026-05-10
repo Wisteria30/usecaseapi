@@ -534,13 +534,17 @@ def ref_to_manifest_usecase(
 
 def model_to_manifest(model_type: type[Model]) -> dict[str, Any]:
     """Convert a Model class into Manifest model metadata."""
-    return {
+    item: dict[str, Any] = {
         "name": model_type.__name__,
         "module": model_type.__module__,
         "fields": [
             field_to_manifest(name, field) for name, field in model_type.model_fields.items()
         ],
     }
+    description = inspect.getdoc(model_type)
+    if description is not None:
+        item["description"] = description
+    return item
 
 
 def field_to_manifest(name: str, field: FieldInfo) -> dict[str, Any]:
