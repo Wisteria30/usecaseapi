@@ -685,8 +685,7 @@ def test_manifest_cli_uses_yaml_for_export_validate_scaffold_docs_graph_and_diff
     generated_root = tmp_path / "generated"
     assert main(["manifest", "scaffold", str(manifest_path), "--root", str(generated_root)]) == 0
     assert (
-        generated_root
-        / "src/commerce/usecases/place_order/v1/place_order_contract.py"
+        generated_root / "src/commerce/usecases/place_order/v1/place_order_contract.py"
     ).exists()
 
     assert main(["docs", str(manifest_path), "--output", str(docs_path)]) == 0
@@ -697,15 +696,20 @@ def test_manifest_cli_uses_yaml_for_export_validate_scaffold_docs_graph_and_diff
 
     assert main(["diff", str(manifest_path), str(manifest_path)]) == 0
 
+    assert main(["manifest", "export", "composition:usecases"]) == 0
+    stdout_manifest = yaml.safe_load(capsys.readouterr().out)
+    assert stdout_manifest["kind"] == MANIFEST_KIND
+
 
 def test_basic_example_manifest_is_generated_from_composition(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The committed basic example Manifest matches CLI export output."""
-    monkeypatch.syspath_prepend("examples/basic/src")
+    monkeypatch.chdir("examples/basic")
+    monkeypatch.syspath_prepend("src")
     exported_path = tmp_path / "usecaseapi.ucase.yaml"
-    committed_path = Path("examples/basic/usecaseapi.ucase.yaml")
+    committed_path = Path("usecaseapi.ucase.yaml")
 
     assert (
         main(
@@ -729,10 +733,6 @@ def test_basic_example_manifest_is_generated_from_composition(
     )
 
     assert load_manifest(committed_path) == load_manifest(exported_path)
-
-    assert main(["manifest", "export", "composition:usecases"]) == 0
-    stdout_manifest = yaml.safe_load(capsys.readouterr().out)
-    assert stdout_manifest["kind"] == MANIFEST_KIND
 
 
 def test_manifest_cli_covers_error_and_stdout_branches(
