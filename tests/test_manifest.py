@@ -822,6 +822,9 @@ def test_manifest_private_helpers_cover_edge_branches(
     assert manifest_module._trim_to_root("app/contracts/example/run/v1.py", "") == (
         "app/contracts/example/run/v1.py"
     )
+    assert manifest_module._trim_to_root("/tmp/project/app/contracts/example/run/v1.py", "app") == (
+        "app/contracts/example/run/v1.py"
+    )
     assert manifest_module._qualname(object()).startswith("<object object")
     assert manifest_module._default_ref_symbol("example.run") == "RUN"
     with pytest.raises(ManifestError, match="must be a non-empty string"):
