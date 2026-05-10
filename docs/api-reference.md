@@ -80,7 +80,7 @@ Validates Manifest shape, type expression syntax, error boundaries, model refere
 
 ## `scaffold_from_manifest(manifest)`
 
-Generates Python contract and implementation skeletons from Manifest entries.
+Generates Python contract, implementation, and pytest skeletons from Manifest entries.
 
 ## `diff_manifests(old, new)`
 

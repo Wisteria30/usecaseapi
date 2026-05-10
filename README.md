@@ -201,7 +201,7 @@ usecaseapi manifest validate usecaseapi.ucase.yaml
 usecaseapi manifest check-sync composition:usecases usecaseapi.ucase.yaml
 ```
 
-Generate Python contract and implementation skeletons from the catalog:
+Generate Python contract, implementation, and pytest skeletons from the catalog:
 
 ```bash
 usecaseapi manifest scaffold usecaseapi.ucase.yaml --root .

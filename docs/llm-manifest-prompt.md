@@ -3,7 +3,7 @@
 Use this prompt when a conversation has produced rough requirements and you want an
 LLM to converge them into a UseCaseAPI Manifest. The intended output is a
 reviewable `usecaseapi.ucase.yaml` that can be validated and used to generate
-initial Python contract and implementation skeletons.
+initial Python contract, implementation, and pytest skeletons.
 
 ## Prompt
 
@@ -28,6 +28,7 @@ Use these source conventions:
 - `layout.package`: the Python import package and filesystem package that owns the usecases.
 - `layout.contracts_root`: usually `{root}/{package}`.
 - `layout.implementations_root`: usually `{root}`.
+- `layout.tests_root`: usually `tests`.
 - `name`: `{package}.{usecase}` unless a narrower package/module decision is
   explicitly provided.
 - `key`: `{name}@v{version}`.
@@ -123,6 +124,7 @@ runtime:
 layout:
   contracts_root: src/package_name
   implementations_root: src
+  tests_root: tests
   package: package_name
 usecases:
   - name: package_name.usecase_name

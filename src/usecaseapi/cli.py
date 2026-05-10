@@ -179,10 +179,10 @@ def manifest_scaffold(
     dry_run: Annotated[bool, typer.Option(help="Print files without writing them")] = False,
     no_implementation: Annotated[
         bool,
-        typer.Option(help="Do not generate implementation skeletons"),
+        typer.Option(help="Do not generate implementation or test skeletons"),
     ] = False,
 ) -> None:
-    """Generate Python contract and implementation skeletons from a Manifest."""
+    """Generate Python contract, implementation, and test skeletons from a Manifest."""
     result = scaffold_from_manifest(
         load_manifest(path),
         root=root,

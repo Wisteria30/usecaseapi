@@ -232,7 +232,7 @@ def scaffold_from_manifest(
     dry_run: bool = False,
     create_implementation: bool = True,
 ) -> ManifestScaffoldResult:
-    """Generate Python contract and implementation skeletons from a Manifest."""
+    """Generate Python contract, implementation, and test skeletons from a Manifest."""
     validate_manifest(manifest)
     root_path = Path(root)
     layout = manifest.get("layout")
@@ -242,6 +242,9 @@ def scaffold_from_manifest(
         layout_mapping.get("implementations_root"),
         "app/usecases",
     )
+    tests_root = string_or_default(layout_mapping.get("tests_root"), "tests")
+    package = layout_mapping.get("package")
+    package_name = package if isinstance(package, str) and package else None
 
     created: list[Path] = []
     skipped: list[Path] = []
@@ -251,10 +254,12 @@ def scaffold_from_manifest(
             source.get("contract_file"),
             default_contract_file(usecase, contracts_root=contracts_root),
         )
-        implementation_file = root_path / string_or_default(
+        implementation_path = string_or_default(
             source.get("implementation_file"),
             default_implementation_file(usecase, implementations_root=implementations_root),
         )
+        implementation_file = root_path / implementation_path
+        test_file = root_path / default_manifest_test_file(usecase, tests_root=tests_root)
 
         write_generated_file(
             contract_file,
@@ -275,6 +280,23 @@ def scaffold_from_manifest(
                     dry_run=dry_run,
                 )
                 created.append(implementation_file)
+
+            if test_file.exists() and not force:
+                skipped.append(test_file)
+            else:
+                write_generated_file(
+                    test_file,
+                    render_manifest_test_module(
+                        usecase,
+                        implementation_module=module_from_python_file(
+                            Path(implementation_path),
+                            package=package_name,
+                        ),
+                    ),
+                    force=force,
+                    dry_run=dry_run,
+                )
+                created.append(test_file)
 
         if not dry_run:
             ensure_init_files(contract_file.parent, stop_at=root_path)
@@ -374,9 +396,44 @@ class {implementation_class}:
     async def __call__(self, input: {input_name}, /) -> {output_name}:
         """Implement {implementation_class}.__call__ before using this class."""
         raise NotImplementedError("{implementation_class}.__call__ is not implemented")
+'''
 
 
-_impl: {protocol_class} = {implementation_class}()
+def render_manifest_test_module(usecase: Mapping[str, Any], *, implementation_module: str) -> str:
+    """Render one pytest module for a Manifest scaffolded usecase."""
+    validate_usecase_manifest(usecase, seen_keys=set(), index=0)
+    source = required_mapping(usecase.get("source"), "usecase.source")
+    contract_module = required_string(source, "contract_module")
+    protocol_class = required_string(source, "protocol_class")
+    ref = required_string(source, "ref")
+    implementation_class = string_or_default(
+        source.get("implementation_class"),
+        protocol_class + "Impl",
+    )
+    name = required_string(usecase, "name")
+    version = required_int(usecase, "version")
+    test_name = name.split(".")[-1]
+    return f'''"""Tests for {name} v{version}."""
+
+from __future__ import annotations
+
+from {contract_module} import (
+    {ref},
+    {protocol_class},
+)
+from {implementation_module} import {implementation_class}
+
+
+def test_{test_name}_contract_metadata() -> None:
+    """Contract metadata matches the Manifest usecase identity."""
+    assert {ref}.contract.name == "{name}"
+    assert {ref}.contract.version == {version}
+
+
+def test_{test_name}_usecase_matches_contract() -> None:
+    """Usecase implementation structurally matches the contract Protocol."""
+    usecase: {protocol_class} = {implementation_class}()
+    assert usecase is not None
 '''
 
 
@@ -1233,6 +1290,24 @@ def default_implementation_file(usecase: Mapping[str, Any], *, implementations_r
     name = required_string(usecase, "name")
     parts = name.split(".")
     return str(Path(implementations_root) / Path(*parts[:-1]) / f"{parts[-1]}.py")
+
+
+def default_manifest_test_file(usecase: Mapping[str, Any], *, tests_root: str) -> str:
+    """Return the default generated pytest file path for a Manifest usecase."""
+    name = required_string(usecase, "name")
+    version = required_int(usecase, "version")
+    parts = name.split(".")
+    return str(
+        Path(tests_root) / Path(*parts[:-1]) / parts[-1] / f"v{version}" / f"test_{parts[-1]}.py"
+    )
+
+
+def module_from_python_file(path: Path, *, package: str | None) -> str:
+    """Return an import module for a generated Python file."""
+    parts = list(path.with_suffix("").parts)
+    if package is not None and package in parts:
+        parts = parts[parts.index(package) :]
+    return ".".join(parts)
 
 
 def default_implementation_class(name: str) -> str:

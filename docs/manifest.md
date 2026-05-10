@@ -41,15 +41,15 @@ Validate a Manifest:
 usecaseapi manifest validate usecaseapi.ucase.yaml
 ```
 
-Generate Python contract and implementation skeletons from a Manifest:
+Generate Python contract, implementation, and pytest skeletons from a Manifest:
 
 ```bash
 usecaseapi manifest scaffold usecaseapi.ucase.yaml --root .
 ```
 
-This reads each `source.contract_file` and `source.implementation_file` entry and
-writes the corresponding Python modules. Use `--force` when you intentionally want
-to overwrite existing generated files.
+This reads each `source.contract_file` and `source.implementation_file` entry,
+writes the corresponding Python modules, and creates a pytest file under `tests/`.
+Use `--force` when you intentionally want to overwrite existing generated files.
 
 Check that code and a Manifest describe the same contract catalog:
 
@@ -170,6 +170,7 @@ Top-level fields:
 - `layout.package`: Python import package and filesystem package that owns the usecases.
 - `layout.contracts_root`: root used when source paths are exported from code.
 - `layout.implementations_root`: root used for generated implementation paths.
+- `layout.tests_root`: root used for generated pytest paths. Defaults to `tests`.
 - `usecases`: non-empty list of versioned usecase contracts.
 
 Usecase fields:
@@ -235,7 +236,7 @@ Error fields:
 ## Writing A Manifest Before Code
 
 When code does not exist yet, write `usecaseapi.ucase.yaml` first, then generate the
-initial contract and implementation skeletons:
+initial contract, implementation, and pytest skeletons:
 
 ```bash
 usecaseapi manifest validate usecaseapi.ucase.yaml
@@ -248,6 +249,7 @@ For the v1.1 scaffold layout, set paths like this:
 layout:
   contracts_root: src/commerce
   implementations_root: src
+  tests_root: tests
   package: commerce
 source:
   contract_module: commerce.usecases.place_order.v1.place_order_contract

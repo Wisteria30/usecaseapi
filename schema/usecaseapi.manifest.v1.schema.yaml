@@ -36,6 +36,8 @@ properties:
         type: string
       implementations_root:
         type: string
+      tests_root:
+        type: string
   usecases:
     type: array
     minItems: 1

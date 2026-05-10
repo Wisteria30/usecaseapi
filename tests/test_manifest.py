@@ -558,11 +558,19 @@ usecases:
 
     contract_file = tmp_path / "app/contracts/orders/place_order/v1.py"
     implementation_file = tmp_path / "app/usecases/orders/place_order.py"
+    test_file = tmp_path / "tests/orders/place_order/v1/test_place_order.py"
     assert contract_file in result.files
     assert implementation_file in result.files
+    assert test_file in result.files
     assert "class PlaceOrder(UseCase[Input, Output], Protocol):" in contract_file.read_text()
     assert "class InventoryShortage(PlaceOrderError):" in contract_file.read_text()
     assert "PLACE_ORDER: UseCaseRef[Input, Output]" in contract_file.read_text()
+    implementation_text = implementation_file.read_text()
+    assert "_impl" not in implementation_text
+    test_text = test_file.read_text()
+    assert "from app.contracts.orders.place_order.v1 import (" in test_text
+    assert "from app.usecases.orders.place_order import PlaceOrderImpl" in test_text
+    assert "usecase: PlaceOrder = PlaceOrderImpl()" in test_text
 
 
 def test_manifest_scaffold_handles_dry_run_existing_files_and_default_paths(
@@ -590,7 +598,10 @@ def test_manifest_scaffold_handles_dry_run_existing_files_and_default_paths(
 
     assert tmp_path / "app/contracts/example/run/v1.py" in first.files
     assert tmp_path / "app/usecases/example/run.py" in second.files
-    assert third.skipped == (tmp_path / "app/usecases/example/run.py",)
+    assert third.skipped == (
+        tmp_path / "app/usecases/example/run.py",
+        tmp_path / "tests/example/run/v1/test_run.py",
+    )
 
     with pytest.raises(FileExistsError, match="already exists"):
         scaffold_from_manifest(manifest, root=tmp_path, create_implementation=False)
