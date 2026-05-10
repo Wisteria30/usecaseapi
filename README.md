@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <em>FastAPI-style contracts for same-process Python application use cases.</em>
+  <em>Code-first, OpenAPI-inspired contracts for same-process Python use cases.</em>
 </p>
 
 <p align="center">
