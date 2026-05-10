@@ -260,7 +260,10 @@ def render_contract_module(usecase: Mapping[str, Any]) -> str:
     errors = manifest_errors(usecase)
 
     type_exprs = collect_type_exprs(models, errors)
-    lines: list[str] = ["from __future__ import annotations", ""]
+    lines: list[str] = []
+    if isinstance(description, str):
+        lines.extend([f'"""{description}"""', ""])
+    lines.extend(["from __future__ import annotations", ""])
     lines.extend(stdlib_import_lines(type_exprs))
     lines.append(f"from typing import {', '.join(typing_imports(type_exprs, errors))}")
     lines.extend(["", "from usecaseapi import ("])
@@ -308,13 +311,20 @@ def render_implementation_module(usecase: Mapping[str, Any]) -> str:
     )
     input_name = required_string(usecase, "input")
     output_name = required_string(usecase, "output")
-    return f'''from __future__ import annotations
+    description = usecase.get("description")
+    class_description = (
+        description
+        if isinstance(description, str)
+        else f"Implementation skeleton for {protocol_class}."
+    )
+    module_docstring = f'"""{description}"""\n\n' if isinstance(description, str) else ""
+    return f'''{module_docstring}from __future__ import annotations
 
 from {contract_module} import {input_name}, {output_name}, {protocol_class}
 
 
 class {implementation_class}:
-    """Implementation skeleton for {protocol_class}."""
+    """{class_description}"""
 
     async def __call__(self, input: {input_name}, /) -> {output_name}:
         """Implement {implementation_class}.__call__ before using this class."""
@@ -990,9 +1000,14 @@ def render_contract_binding(
     tags: Sequence[str],
 ) -> list[str]:
     """Render protocol and UseCaseRef binding code."""
+    protocol_description = (
+        description
+        if isinstance(description, str)
+        else (f"Contract Protocol for {name} v{version}.")
+    )
     lines = [
         f"class {protocol_class}(UseCase[{input_name}, {output_name}], Protocol):",
-        f'    """Contract Protocol for {name} v{version}."""',
+        f'    """{protocol_description}"""',
         "",
         f"    async def __call__(self, input: {input_name}, /) -> {output_name}:",
         "        ...",

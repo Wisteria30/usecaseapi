@@ -47,6 +47,9 @@ Use these source conventions:
 Every usecase must include:
 
 - `description`: one sentence explaining the usecase behavior and boundary.
+  UseCaseAPI renders this as the generated contract module docstring, Protocol
+  docstring, implementation module docstring, implementation class docstring, and
+  `Contract(description=...)`.
 - input model `description`: one sentence explaining what the caller provides.
 - output model `description`: one sentence explaining what the caller receives.
 - all input and output fields with `name`, `type`, `required`, and field

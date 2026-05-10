@@ -184,7 +184,9 @@ Usecase fields:
 - `version`: integer major version.
 - `key`: canonical key, always `{name}@v{version}`.
 - `domain`: first segment of `name`.
-- `description`: context for the usecase behavior.
+- `description`: context for the usecase behavior. `manifest scaffold` renders it
+  as the contract module docstring, Protocol docstring, implementation module
+  docstring, implementation class docstring, and `Contract(description=...)`.
 - `stable`: whether breaking changes should be treated conservatively.
 - `deprecated`: whether this version should no longer be used.
 - `superseded_by`: optional replacement key.
@@ -271,8 +273,10 @@ Use `name + version` as the identity of a usecase contract. The full key is
 Use `models` for model definitions that are both readable and suitable for Python
 skeleton generation. Field types use a small Python-annotation-compatible subset.
 
-Use `description` on the usecase, input model, and output model. These descriptions
-carry the context needed by reviewers, documentation generators, and LLM agents.
+Use `description` on the usecase, input model, output model, and nested models.
+`manifest scaffold` turns those values into Python docstrings so the generated
+contract file, input model, output model, and usecase implementation carry the
+same context reviewers and LLM agents saw in the Manifest.
 
 Use real Python exception classes for domain errors. `raises` is the public catch
 boundary. `known_errors` is the documented leaf-error list.

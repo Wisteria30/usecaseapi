@@ -740,8 +740,20 @@ def test_basic_example_manifest_is_generated_from_composition(
     generated_contract = (
         generated_root / "src/commerce/usecases/place_order/v1/place_order_contract.py"
     )
+    generated_usecase = (
+        generated_root / "src/commerce/usecases/place_order/v1/place_order_usecase.py"
+    )
     assert generated_contract.exists()
-    assert '"""Input required to place an order."""' in generated_contract.read_text()
+    contract_text = generated_contract.read_text()
+    usecase_text = generated_usecase.read_text()
+    assert contract_text.startswith('"""Creates an order after inventory has been confirmed."""')
+    assert '"""Input required to place an order."""' in contract_text
+    assert '"""Accepted order result."""' in contract_text
+    assert usecase_text.startswith('"""Creates an order after inventory has been confirmed."""')
+    assert (
+        'class PlaceOrderUseCase:\n    """Creates an order after inventory has been confirmed."""'
+        in (usecase_text)
+    )
 
 
 def test_manifest_cli_covers_error_and_stdout_branches(
