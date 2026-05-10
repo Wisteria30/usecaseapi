@@ -1,0 +1,1 @@
+"""UseCaseAPI scaffold package."""

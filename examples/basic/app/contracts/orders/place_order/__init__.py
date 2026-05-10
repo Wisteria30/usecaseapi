@@ -1,1 +1,0 @@
-"""Place order contract package."""

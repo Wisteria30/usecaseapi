@@ -10,7 +10,7 @@ Base class for domain errors that are part of public usecase contracts. Subclass
 
 ```python
 class PlaceOrderError(UseCaseError):
-    code: ClassVar[str] = "orders.place_order"
+    code: ClassVar[str] = "commerce.place_order"
 ```
 
 ## `UseCase[InputT, OutputT]`
@@ -18,8 +18,8 @@ class PlaceOrderError(UseCaseError):
 Structural Protocol for async callable usecase implementations.
 
 ```python
-class PlaceOrder(UseCase[Input, Output], Protocol):
-    async def __call__(self, input: Input, /) -> Output:
+class PlaceOrder(UseCase[PlaceOrderUseCaseInput, PlaceOrderUseCaseOutput], Protocol):
+    async def __call__(self, input: PlaceOrderUseCaseInput, /) -> PlaceOrderUseCaseOutput:
         ...
 ```
 
@@ -49,8 +49,8 @@ Registry and runtime.
 
 ```python
 api = UseCaseAPI[AppContext]()
-api.register(PLACE_ORDER)
-api.bind(PLACE_ORDER, lambda caller: PlaceOrderUseCase())
+api.register(PLACE_ORDER_USECASE)
+api.bind(PLACE_ORDER_USECASE, lambda caller: PlaceOrderUseCase())
 api.validate()
 caller = api.caller(context)
 ```
@@ -60,20 +60,32 @@ caller = api.caller(context)
 Context-bound call surface.
 
 ```python
-output = await caller.call(PLACE_ORDER, input)
+output = await caller.call(PLACE_ORDER_USECASE, input)
 results = await caller.gather(caller.call(A, a), caller.call(B, b))
 ```
 
 `Caller.gather` uses `asyncio.TaskGroup`, so multiple failures preserve Python `ExceptionGroup` behavior.
 
-## `snapshot_from_api(api)`
+## `manifest_from_api(api)`
 
-Creates a JSON-serializable snapshot for CI and docs.
+Creates a YAML-friendly Manifest catalog from a registered `UseCaseAPI` instance.
 
-## `diff_snapshots(old, new)`
+## `load_manifest(path)` / `dump_manifest(manifest, path)`
+
+Loads and writes validated `.ucase.yaml` Manifest files.
+
+## `validate_manifest(manifest)`
+
+Validates Manifest shape, type expression syntax, error boundaries, model references, and usecase keys.
+
+## `scaffold_from_manifest(manifest)`
+
+Generates Python contract and implementation skeletons from Manifest entries.
+
+## `diff_manifests(old, new)`
 
 Performs conservative breaking-change detection.
 
-## `render_markdown(api)` / `render_mermaid(api)`
+## `render_manifest_markdown(manifest)` / `render_manifest_graph(manifest)`
 
-Renders human-readable docs and graph diagrams.
+Renders human-readable docs and graph diagrams from Manifest data.

@@ -1,0 +1,4 @@
+interface:
+  display_name: "UseCaseAPI Manifest Builder"
+  short_description: "Design validated UseCaseAPI manifests"
+  default_prompt: "Use $usecaseapi-manifest-builder to interview me, create a validated usecaseapi.ucase.yaml, and scaffold code after approval."

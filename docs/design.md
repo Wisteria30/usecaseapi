@@ -9,17 +9,17 @@ UseCaseAPI is built around one idea: a usecase should be treated as a versioned 
 3. **Exceptions are exceptions.** Domain errors are real `Exception` subclasses, so stack traces, inheritance, `except`, `except*`, and `ExceptionGroup` remain useful.
 4. **No DI container.** Host frameworks decide where request context, database sessions, transactions, tenants, actors, and credentials are created.
 5. **Same-process direct calls.** UseCaseAPI does not introduce HTTP, RPC, queues, or JSON serialization into the hot path.
-6. **Graph-aware.** Large systems need declared usecase dependencies, graph export, snapshots, and breaking-change detection.
+6. **Graph-aware.** Large systems need declared usecase dependencies, graph export, Manifest catalogs, and breaking-change detection.
 
 ## The contract shape
 
 A contract module contains:
 
-- `Input`: a Pydantic v2 model.
-- `Output`: a Pydantic v2 model.
+- `{Usecase}UseCaseInput`: a Pydantic v2 model.
+- `{Usecase}UseCaseOutput`: a Pydantic v2 model.
 - a base domain exception derived from `UseCaseError`.
 - optional leaf domain exceptions.
-- a `Protocol` derived from `UseCase[Input, Output]`.
+- a `Protocol` derived from `UseCase[{Usecase}UseCaseInput, {Usecase}UseCaseOutput]`.
 - a `UseCaseRef` token created by `define_usecase`.
 
 The `UseCaseRef` is used for binding and calling. It carries runtime metadata while preserving type information.
@@ -43,11 +43,11 @@ The host application controls the `ContextT` object. A FastAPI app may put reque
 A usecase binding can declare which other usecases it may call:
 
 ```python
-usecases.bind(CHECKOUT, lambda caller: CheckoutUseCase(caller), uses=(PLACE_ORDER,))
+usecases.bind(CHECKOUT_USECASE, lambda caller: CheckoutUseCase(caller), uses=(PLACE_ORDER_USECASE,))
 ```
 
 In strict mode, calling an undeclared usecase from inside a handler raises `UndeclaredUseCaseDependencyError`.
 
 ## Version identity
 
-A contract identity is `name@vN`, for example `orders.place_order@v1`. There is no implicit `latest`. Callers import the version they use.
+A contract identity is `name@vN`, for example `commerce.place_order@v1`. There is no implicit `latest`. Callers import the version they use.

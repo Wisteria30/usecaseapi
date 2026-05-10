@@ -24,7 +24,9 @@ def load_script() -> ModuleType:
     return module
 
 
-def coverage_report(*, statements: int, missing: int, percent: float, display: str) -> dict[str, object]:
+def coverage_report(
+    *, statements: int, missing: int, percent: float, display: str
+) -> dict[str, object]:
     """Create a minimal coverage.py JSON report."""
     return {
         "totals": {
@@ -58,8 +60,12 @@ def test_main_dry_run_prints_comment(tmp_path: Path, capsys: pytest.CaptureFixtu
     script = load_script()
     base = tmp_path / "base.json"
     head = tmp_path / "head.json"
-    base.write_text(json.dumps(coverage_report(statements=10, missing=1, percent=90.0, display="90")))
-    head.write_text(json.dumps(coverage_report(statements=10, missing=0, percent=100.0, display="100")))
+    base.write_text(
+        json.dumps(coverage_report(statements=10, missing=1, percent=90.0, display="90"))
+    )
+    head.write_text(
+        json.dumps(coverage_report(statements=10, missing=0, percent=100.0, display="100"))
+    )
 
     exit_code = script.main(
         [

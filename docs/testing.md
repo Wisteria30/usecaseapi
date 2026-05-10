@@ -4,34 +4,40 @@ UseCaseAPI keeps tests simple because composition is explicit.
 
 ## Type conformance
 
-In implementation modules, keep a structural assignment:
+Keep structural Protocol assignments in tests, where dependencies can be built
+explicitly:
 
 ```python
-_impl: PlaceOrder = PlaceOrderUseCase()
+def test_place_order_usecase_matches_contract() -> None:
+    usecase: PlaceOrder = PlaceOrderUseCase(...)
+    assert usecase.__class__ is PlaceOrderUseCase
 ```
 
-Mypy and pyright can then verify the implementation shape.
+Avoid module-level implementation instances in production code. They force import-time
+dependency construction and make complex dependency graphs harder to compose.
 
 ## Runtime call tests
 
 ```python
 ctx = AppContext(...)
-output = await usecases.caller(ctx).call(PLACE_ORDER, input)
+output = await usecases.caller(ctx).call(PLACE_ORDER_USECASE, input)
 ```
 
-## Snapshot tests
+## Manifest tests
 
-Generate and compare snapshots in CI:
+Generate and validate the canonical Manifest in CI:
 
 ```bash
-usecaseapi snapshot app.composition:usecases --output usecaseapi.snapshot.json
-git diff --exit-code usecaseapi.snapshot.json
+usecaseapi manifest export composition:usecases --output usecaseapi.ucase.yaml
+usecaseapi manifest validate usecaseapi.ucase.yaml
+usecaseapi manifest check-sync composition:usecases usecaseapi.ucase.yaml
+git diff --exit-code usecaseapi.ucase.yaml
 ```
 
 ## Breaking-change checks
 
 ```bash
-usecaseapi diff old-snapshot.json new-snapshot.json
+usecaseapi diff old.ucase.yaml new.ucase.yaml
 ```
 
-The diff is intentionally conservative. If the same stable version changes input or output schema, it reports a breaking change.
+The diff is intentionally conservative. If the same stable version changes input or output models, fields, or declared errors, it reports a breaking change.

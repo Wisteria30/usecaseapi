@@ -10,6 +10,11 @@ coverage.*
 htmlcov/
 
 .venv/
+.codex/*
+!.codex/skills/
+.codex/skills/*
+!.codex/skills/usecaseapi-manifest-builder/
+!.codex/skills/usecaseapi-manifest-builder/**
 build/
 dist/
 *.egg-info/
