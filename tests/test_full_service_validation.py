@@ -335,6 +335,7 @@ def test_manifest_docs_graph_and_diff_cover_contract_catalog() -> None:
     changed["usecases"][0]["deprecated"] = True
     added = deepcopy(changed["usecases"][0])
     added["name"] = "added.run"
+    added["namespace"] = "added"
     added["version"] = 1
     added["key"] = "added.run@v1"
     added["source"]["contract_module"] = "app.contracts.added.run.v1"
@@ -368,7 +369,7 @@ def test_scaffold_boundaries_and_dry_run(
         scaffold_usecase(ScaffoldOptions(name="commerce.create", version=0))
     with pytest.raises(ValueError, match="version and next"):
         scaffold_usecase(ScaffoldOptions(name="commerce.create", version=1, next=True))
-    with pytest.raises(ValueError, match=r"domain\.use_case"):
+    with pytest.raises(ValueError, match=r"package\.use_case"):
         scaffold_usecase(ScaffoldOptions(name="commerce"))
     with pytest.raises(ValueError, match="no existing versions"):
         scaffold_usecase(ScaffoldOptions(name="commerce.create", next=True))

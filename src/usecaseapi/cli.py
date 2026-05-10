@@ -66,7 +66,7 @@ def scaffold(
     dry_run: Annotated[bool, typer.Option(help="Print files without writing them")] = False,
     output_root: Annotated[
         Path,
-        typer.Option(help="Directory where namespace directories are generated"),
+        typer.Option(help="Directory where package directories are generated"),
     ] = Path("."),
     tests_root: Annotated[Path, typer.Option(help="Directory where tests are generated")] = Path(
         "tests"

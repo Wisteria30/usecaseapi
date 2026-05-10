@@ -511,7 +511,7 @@ def ref_to_manifest_usecase(
         "name": contract.name,
         "version": contract.version,
         "key": contract.key,
-        "domain": contract.name.split(".")[0],
+        "namespace": contract.name.split(".")[0],
         "description": contract.description,
         "stable": contract.stable,
         "deprecated": contract.deprecated,
@@ -727,7 +727,12 @@ def validate_usecase_identity(
     """Validate usecase name, version, and canonical key identity."""
     name = required_string(item, "name")
     if not valid_contract_name(name):
-        raise ManifestError(f"usecases[{index}].name must look like 'domain.use_case'")
+        raise ManifestError(f"usecases[{index}].name must look like 'namespace.use_case'")
+    if "domain" in item:
+        raise ManifestError(f"usecases[{index}].domain is not supported; use namespace")
+    namespace = required_string(item, "namespace")
+    if namespace != name.split(".")[0]:
+        raise ManifestError(f"usecases[{index}].namespace must be the first name segment")
     version = required_int(item, "version")
     if version < 1:
         raise ManifestError(f"usecases[{index}].version must be >= 1")
@@ -1360,6 +1365,7 @@ def semantic_manifest(manifest: Mapping[str, Any]) -> dict[str, Any]:
         "usecases": [
             {
                 "name": required_string(item, "name"),
+                "namespace": required_string(item, "namespace"),
                 "version": required_int(item, "version"),
                 "key": usecase_key(item),
                 "description": item.get("description"),

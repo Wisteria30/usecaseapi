@@ -175,6 +175,7 @@ def minimal_manifest() -> dict[str, Any]:
         "usecases": [
             {
                 "name": "example.run",
+                "namespace": "example",
                 "version": 1,
                 "source": {
                     "contract_module": "app.contracts.example.run.v1",
@@ -265,6 +266,7 @@ def test_manifest_validation_rejects_unsafe_type_expression() -> None:
         "usecases": [
             {
                 "name": "example.run",
+                "namespace": "example",
                 "version": 1,
                 "source": {
                     "contract_module": "app.contracts.example.run.v1",
@@ -301,6 +303,14 @@ def test_manifest_validation_rejects_unsafe_type_expression() -> None:
         (
             lambda manifest: manifest["usecases"][0].update({"name": "Example"}),
             "name must look",
+        ),
+        (
+            lambda manifest: manifest["usecases"][0].update({"domain": "example"}),
+            "domain is not supported",
+        ),
+        (
+            lambda manifest: manifest["usecases"][0].update({"namespace": "other"}),
+            "namespace must be the first name segment",
         ),
         (lambda manifest: manifest["usecases"][0].update({"version": 0}), "version must be"),
         (lambda manifest: manifest["usecases"][0].update({"version": "1"}), "version must be"),
@@ -391,6 +401,7 @@ def test_manifest_validation_checks_error_boundaries() -> None:
         "usecases": [
             {
                 "name": "example.run",
+                "namespace": "example",
                 "version": 1,
                 "source": {
                     "contract_module": "app.contracts.example.run.v1",
@@ -487,7 +498,7 @@ usecases:
   - name: orders.place_order
     version: 1
     key: orders.place_order@v1
-    domain: orders
+    namespace: orders
     description: Place an order.
     stable: true
     deprecated: false

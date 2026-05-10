@@ -25,13 +25,14 @@ the v1.1 scaffold layout:
 
 Use these source conventions:
 
-- `layout.package`: the Python package that owns the usecases.
+- `layout.package`: the Python import package and filesystem package that owns the usecases.
 - `layout.contracts_root`: usually `{root}/{package}`.
 - `layout.implementations_root`: usually `{root}`.
 - `name`: `{package}.{usecase}` unless a narrower package/module decision is
   explicitly provided.
 - `key`: `{name}@v{version}`.
-- `domain`: the first segment of `name`.
+- `namespace`: the first segment of `name`; in the standard scaffold layout this
+  is the same value as `layout.package`.
 - `source.contract_module`:
   `{package}.usecases.{usecase}.v{version}.{usecase}_contract`
 - `source.implementation_file`:
@@ -129,7 +130,7 @@ usecases:
   - name: package_name.usecase_name
     version: 1
     key: package_name.usecase_name@v1
-    domain: package_name
+    namespace: package_name
     description: One sentence describing the usecase behavior and boundary.
     stable: true
     deprecated: false

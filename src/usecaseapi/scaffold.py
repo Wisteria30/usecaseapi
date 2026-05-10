@@ -200,7 +200,7 @@ def validate_scaffold_options(options: ScaffoldOptions) -> None:
     if options.version is not None and options.next:
         raise ValueError("version and next cannot be used together")
     if _USECASE_NAME.fullmatch(options.name) is None:
-        raise ValueError("usecase name must look like 'domain.use_case'")
+        raise ValueError("usecase name must look like 'package.use_case'")
 
 
 def resolve_scaffold_version(
