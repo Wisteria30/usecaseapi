@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from .api import Binding, Caller, CallRecord, UseCaseAPI
 from .contracts import Contract, UseCase, UseCaseRef, define_usecase
-from .docs import render_markdown, render_mermaid
 from .errors import (
     ContractDefinitionError,
     DuplicateUseCaseError,
@@ -15,9 +14,26 @@ from .errors import (
     UseCaseAPIError,
     UseCaseError,
 )
+from .manifest import (
+    MANIFEST_EXTENSION,
+    MANIFEST_KIND,
+    MANIFEST_MEDIA_TYPE,
+    ManifestDiff,
+    ManifestError,
+    ManifestScaffoldResult,
+    diff_manifest_with_api,
+    diff_manifests,
+    dump_manifest,
+    load_manifest,
+    manifest_from_api,
+    manifest_to_yaml,
+    render_manifest_graph,
+    render_manifest_markdown,
+    scaffold_from_manifest,
+    validate_manifest,
+)
 from .model import Model
 from .scaffold import ScaffoldOptions, ScaffoldResult, scaffold_usecase
-from .snapshot import ContractDiff, diff_snapshots, load_snapshot, snapshot_from_api, write_snapshot
 
 __all__ = [
     "Binding",
@@ -25,9 +41,14 @@ __all__ = [
     "Caller",
     "Contract",
     "ContractDefinitionError",
-    "ContractDiff",
     "DuplicateUseCaseError",
     "InvalidHandlerError",
+    "MANIFEST_EXTENSION",
+    "MANIFEST_KIND",
+    "MANIFEST_MEDIA_TYPE",
+    "ManifestDiff",
+    "ManifestError",
+    "ManifestScaffoldResult",
     "MissingBindingError",
     "Model",
     "ScaffoldOptions",
@@ -40,11 +61,15 @@ __all__ = [
     "UseCaseError",
     "UseCaseRef",
     "define_usecase",
-    "diff_snapshots",
-    "load_snapshot",
-    "render_markdown",
-    "render_mermaid",
+    "diff_manifest_with_api",
+    "diff_manifests",
+    "dump_manifest",
+    "load_manifest",
+    "manifest_from_api",
+    "manifest_to_yaml",
+    "render_manifest_graph",
+    "render_manifest_markdown",
+    "scaffold_from_manifest",
     "scaffold_usecase",
-    "snapshot_from_api",
-    "write_snapshot",
+    "validate_manifest",
 ]

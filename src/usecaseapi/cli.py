@@ -11,9 +11,19 @@ from pathlib import Path
 from typing import Any, cast
 
 from .api import UseCaseAPI
-from .docs import render_markdown, render_mermaid
+from .manifest import (
+    diff_manifest_with_api,
+    diff_manifests,
+    dump_manifest,
+    load_manifest,
+    manifest_from_api,
+    manifest_to_yaml,
+    render_manifest_graph,
+    render_manifest_markdown,
+    scaffold_from_manifest,
+    validate_manifest,
+)
 from .scaffold import ScaffoldOptions, scaffold_usecase
-from .snapshot import diff_snapshots, load_snapshot, snapshot_from_api
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -25,8 +35,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _cmd_scaffold(args)
     if command == "inspect":
         return _cmd_inspect(args)
-    if command == "snapshot":
-        return _cmd_snapshot(args)
     if command == "docs":
         return _cmd_docs(args)
     if command == "graph":
@@ -35,6 +43,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _cmd_diff(args)
     if command == "check":
         return _cmd_check(args)
+    if command == "manifest":
+        return _cmd_manifest(args)
     parser.print_help()
     return 2
 
@@ -69,16 +79,59 @@ def _build_parser() -> argparse.ArgumentParser:
     scaffold.add_argument("--no-tests", action="store_true")
     scaffold.add_argument("--no-init", action="store_true")
 
-    for name in ("inspect", "snapshot", "docs", "graph", "check"):
-        sub = subparsers.add_parser(name, help=f"{name} a UseCaseAPI instance")
-        sub.add_argument("app", help="import path like 'myapp.composition:usecases'")
-        if name in {"snapshot", "docs", "graph"}:
-            sub.add_argument("--output", "-o", default=None)
+    inspect = subparsers.add_parser("inspect", help="inspect a UseCaseAPI instance")
+    inspect.add_argument("app", help="import path like 'myapp.composition:usecases'")
 
-    diff = subparsers.add_parser("diff", help="compare two UseCaseAPI snapshots")
+    check = subparsers.add_parser("check", help="check a UseCaseAPI instance")
+    check.add_argument("app", help="import path like 'myapp.composition:usecases'")
+
+    for name in ("docs", "graph"):
+        sub = subparsers.add_parser(name, help=f"{name} a UseCaseAPI Manifest")
+        sub.add_argument("manifest", help="path to a .ucase.yaml Manifest")
+        sub.add_argument("--output", "-o", default=None)
+
+    diff = subparsers.add_parser("diff", help="compare two UseCaseAPI manifests")
     diff.add_argument("old")
     diff.add_argument("new")
     diff.add_argument("--json", action="store_true")
+
+    manifest = subparsers.add_parser(
+        "manifest",
+        help="export, validate, scaffold, or check .ucase.yaml files",
+    )
+    manifest_subparsers = manifest.add_subparsers(dest="manifest_command", required=True)
+
+    manifest_export = manifest_subparsers.add_parser("export", help="export a UseCaseAPI Manifest")
+    manifest_export.add_argument("app", help="import path like 'myapp.composition:usecases'")
+    manifest_export.add_argument("--output", "-o", default=None)
+    manifest_export.add_argument("--project", default=None)
+    manifest_export.add_argument("--package", default=None)
+    manifest_export.add_argument("--contracts-root", default="app/contracts")
+    manifest_export.add_argument("--implementations-root", default="app/usecases")
+    manifest_export.add_argument("--include-json-schema", action="store_true")
+
+    manifest_validate = manifest_subparsers.add_parser(
+        "validate",
+        help="validate a UseCaseAPI Manifest",
+    )
+    manifest_validate.add_argument("path")
+
+    manifest_scaffold = manifest_subparsers.add_parser(
+        "scaffold",
+        help="generate Python contract and implementation skeletons from a Manifest",
+    )
+    manifest_scaffold.add_argument("path")
+    manifest_scaffold.add_argument("--root", default=".")
+    manifest_scaffold.add_argument("--force", action="store_true")
+    manifest_scaffold.add_argument("--dry-run", action="store_true")
+    manifest_scaffold.add_argument("--no-implementation", action="store_true")
+
+    manifest_check_sync = manifest_subparsers.add_parser(
+        "check-sync",
+        help="check that code and a Manifest describe the same contract catalog",
+    )
+    manifest_check_sync.add_argument("app", help="import path like 'myapp.composition:usecases'")
+    manifest_check_sync.add_argument("path")
 
     return parser
 
@@ -111,26 +164,19 @@ def _cmd_scaffold(args: argparse.Namespace) -> int:
 
 def _cmd_inspect(args: argparse.Namespace) -> int:
     api = _load_api(cast(str, args.app))
-    print(json.dumps(snapshot_from_api(api), ensure_ascii=False, indent=2))
-    return 0
-
-
-def _cmd_snapshot(args: argparse.Namespace) -> int:
-    api = _load_api(cast(str, args.app))
-    payload = json.dumps(snapshot_from_api(api), ensure_ascii=False, indent=2) + "\n"
-    _write_or_print(payload, cast(str | None, args.output))
+    print(manifest_to_yaml(manifest_from_api(api)), end="")
     return 0
 
 
 def _cmd_docs(args: argparse.Namespace) -> int:
-    api = _load_api(cast(str, args.app))
-    _write_or_print(render_markdown(api), cast(str | None, args.output))
+    manifest = load_manifest(cast(str, args.manifest))
+    _write_or_print(render_manifest_markdown(manifest), cast(str | None, args.output))
     return 0
 
 
 def _cmd_graph(args: argparse.Namespace) -> int:
-    api = _load_api(cast(str, args.app))
-    _write_or_print(render_mermaid(api), cast(str | None, args.output))
+    manifest = load_manifest(cast(str, args.manifest))
+    _write_or_print(render_manifest_graph(manifest), cast(str | None, args.output))
     return 0
 
 
@@ -142,22 +188,92 @@ def _cmd_check(args: argparse.Namespace) -> int:
 
 
 def _cmd_diff(args: argparse.Namespace) -> int:
-    diff = diff_snapshots(load_snapshot(cast(str, args.old)), load_snapshot(cast(str, args.new)))
+    diff = diff_manifests(load_manifest(cast(str, args.old)), load_manifest(cast(str, args.new)))
     if cast(bool, args.json):
         print(json.dumps(diff.to_dict(), ensure_ascii=False, indent=2))
     else:
-        for label, items in (
-            ("Breaking", diff.breaking),
-            ("Warnings", diff.warnings),
-            ("Additions", diff.additions),
-        ):
-            print(label + ":")
-            if items:
-                for item in items:
-                    print(f"  - {item}")
-            else:
-                print("  - none")
+        _print_diff(diff.breaking, diff.warnings, diff.additions)
     return 1 if diff.has_breaking_changes else 0
+
+
+def _cmd_manifest(args: argparse.Namespace) -> int:
+    command = cast(str, args.manifest_command)
+    if command == "export":
+        return _cmd_manifest_export(args)
+    if command == "validate":
+        return _cmd_manifest_validate(args)
+    if command == "scaffold":
+        return _cmd_manifest_scaffold(args)
+    if command == "check-sync":
+        return _cmd_manifest_check_sync(args)
+    raise ValueError(f"unknown manifest command: {command}")
+
+
+def _cmd_manifest_export(args: argparse.Namespace) -> int:
+    api = _load_api(cast(str, args.app))
+    manifest = manifest_from_api(
+        api,
+        project=cast(str | None, args.project),
+        package=cast(str | None, args.package),
+        contracts_root=cast(str, args.contracts_root),
+        implementations_root=cast(str, args.implementations_root),
+        include_json_schema=cast(bool, args.include_json_schema),
+    )
+    output = cast(str | None, args.output)
+    if output is None:
+        print(manifest_to_yaml(manifest), end="")
+    else:
+        dump_manifest(manifest, output)
+    return 0
+
+
+def _cmd_manifest_validate(args: argparse.Namespace) -> int:
+    validate_manifest(load_manifest(cast(str, args.path)))
+    print("UseCaseAPI manifest validation passed")
+    return 0
+
+
+def _cmd_manifest_scaffold(args: argparse.Namespace) -> int:
+    result = scaffold_from_manifest(
+        load_manifest(cast(str, args.path)),
+        root=cast(str, args.root),
+        force=cast(bool, args.force),
+        dry_run=cast(bool, args.dry_run),
+        create_implementation=not cast(bool, args.no_implementation),
+    )
+    for file_path in result.files:
+        print(f"created: {file_path}")
+    for file_path in result.skipped:
+        print(f"skipped: {file_path}")
+    return 0
+
+
+def _cmd_manifest_check_sync(args: argparse.Namespace) -> int:
+    api = _load_api(cast(str, args.app))
+    diff = diff_manifest_with_api(api, load_manifest(cast(str, args.path)))
+    if diff.has_breaking_changes or diff.warnings or diff.additions:
+        _print_diff(diff.breaking, diff.warnings, diff.additions)
+        return 1
+    print("UseCaseAPI manifest is synchronized")
+    return 0
+
+
+def _print_diff(
+    breaking: Sequence[str],
+    warnings: Sequence[str],
+    additions: Sequence[str],
+) -> None:
+    for label, items in (
+        ("Breaking", breaking),
+        ("Warnings", warnings),
+        ("Additions", additions),
+    ):
+        print(label + ":")
+        if items:
+            for item in items:
+                print(f"  - {item}")
+        else:
+            print("  - none")
 
 
 def _load_api(import_path: str) -> UseCaseAPI[Any]:

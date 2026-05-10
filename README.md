@@ -35,6 +35,8 @@ UseCaseAPI gives internal application use cases stable, versioned contracts.
 
 Define a contract with a Python `Protocol`, Pydantic v2 models, and domain exceptions. Bind that contract to an implementation explicitly. Call it in the same process without turning HTTP, RPC, serialization, dependency injection containers, or transaction managers into runtime requirements.
 
+Add it when your application has internal use case nodes that need stable names, versions, input/output schemas, declared dependencies, and a canonical YAML contract catalog. It helps teams and AI coding agents see what can be called, what can fail, and whether a change broke an application-layer contract before that break ships.
+
 It is designed for applications with many internal use case nodes: workflow-like systems, AI-agent tool surfaces, CLIs, batch workers, FastAPI/Django backends, and codebases where accidental application-layer breaking changes are costly.
 
 ## Key features
@@ -44,7 +46,7 @@ It is designed for applications with many internal use case nodes: workflow-like
 - **Explicit bindings**: connect a contract token to an implementation factory in one place.
 - **Declared dependencies**: expose and validate which use cases can call which other use cases.
 - **Versioned identity**: identify contracts as stable names such as `orders.place_order@v1`.
-- **Contract artifacts**: generate snapshots, conservative diffs, Markdown docs, and Mermaid graphs.
+- **Manifest artifacts**: generate a YAML catalog, conservative diffs, Markdown docs, and Mermaid graphs.
 - **CLI scaffolding**: create a contract, implementation, and test layout from one command.
 - **Typed distribution**: ships `py.typed` for downstream type checkers.
 
@@ -152,31 +154,65 @@ The call is same-process and direct. UseCaseAPI does not serialize the input or 
 Create a first contract version:
 
 ```bash
-usecaseapi scaffold myapp orders.place_order --version 1
+usecaseapi scaffold orders.place_order --version 1
 ```
 
 Create the next major version by scanning existing versions:
 
 ```bash
-usecaseapi scaffold myapp orders.place_order --next
+usecaseapi scaffold orders.place_order --next
 ```
 
 This creates:
 
 ```text
-src/myapp/usecases/orders/place_order/v1/place_order_contract.py
-src/myapp/usecases/orders/place_order/v1/place_order_usecase.py
-tests/usecases/orders/place_order/v1/test_place_order_usecase.py
+app/contracts/orders/place_order/v1.py
+app/usecases/orders/place_order.py
+tests/test_orders_place_order_v1.py
 ```
 
 See [docs/scaffold.md](docs/scaffold.md) for the generated layout and options.
 
-## Contract snapshots and docs
+## Manifest
+
+Export the canonical contract catalog:
+
+```bash
+usecaseapi manifest export app.composition:usecases \
+  --project my-service \
+  --package app \
+  --output usecaseapi.ucase.yaml
+```
+
+Validate it and check that code still matches it:
+
+```bash
+usecaseapi manifest validate usecaseapi.ucase.yaml
+usecaseapi manifest check-sync app.composition:usecases usecaseapi.ucase.yaml
+```
+
+Generate Python contract and implementation skeletons from the catalog:
+
+```bash
+usecaseapi manifest scaffold usecaseapi.ucase.yaml --root .
+```
+
+Render derived outputs:
+
+```bash
+usecaseapi docs usecaseapi.ucase.yaml --output usecaseapi.md
+usecaseapi graph usecaseapi.ucase.yaml --output usecaseapi.mmd
+usecaseapi diff old.ucase.yaml new.ucase.yaml
+```
+
+See [docs/scaffold.md](docs/scaffold.md) and [docs/manifest.md](docs/manifest.md) for generated layouts and options.
+
+## Manifest docs and graph
 
 UseCaseAPI can turn a composed application into inspectable artifacts:
 
-- a JSON-serializable contract snapshot;
-- a conservative diff between snapshots;
+- a canonical YAML Manifest;
+- a conservative diff between Manifests;
 - Markdown documentation for use cases and dependencies;
 - Mermaid graph output for the dependency graph.
 
@@ -186,7 +222,7 @@ See [docs/api-reference.md](docs/api-reference.md), [docs/versioning.md](docs/ve
 
 UseCaseAPI is not a web framework and does not add HTTP, RPC, serialization, service locators, dependency injection containers, or transaction managers to your application runtime.
 
-You can write plain classes and functions for small projects. UseCaseAPI becomes useful when an application has enough internal use case nodes that stable names, versions, declared dependencies, documented errors, snapshots, and generated docs start paying for themselves.
+You can write plain classes and functions for small projects. UseCaseAPI becomes useful when an application has enough internal use case nodes that stable names, versions, declared dependencies, documented errors, Manifest catalogs, and generated docs start paying for themselves.
 
 ## Development
 

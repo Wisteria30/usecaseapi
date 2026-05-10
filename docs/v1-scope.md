@@ -13,7 +13,7 @@ UseCaseAPI v1 is considered complete when it provides:
 - Strict undeclared-call detection.
 - Declared-domain-error validation.
 - `ExceptionGroup`-preserving concurrent call helper.
-- Snapshot, diff, docs, graph, and scaffold CLI.
+- Manifest YAML export, validation, diff, docs, graph, and scaffold CLI.
 - Strict mypy-compatible typed implementation.
 - Python 3.12, 3.13, and 3.14 CI.
 - uv-based packaging and release workflow.

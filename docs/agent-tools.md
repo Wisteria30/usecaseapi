@@ -2,7 +2,7 @@
 
 UseCaseAPI can describe internal tools without turning them into HTTP endpoints.
 
-Use `snapshot_from_api(api)` to list:
+Use `usecaseapi manifest export` or `manifest_from_api(api)` to list:
 
 - contract name and version;
 - input and output model schema;
