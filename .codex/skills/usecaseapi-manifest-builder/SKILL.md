@@ -1,6 +1,6 @@
 ---
 name: usecaseapi-manifest-builder
-description: Build UseCaseAPI Manifest YAML from conversation, validate it, and generate contract/usecase skeletons after explicit user approval. Use when a user wants to design `usecaseapi.ucase.yaml`, convert rough application usecase requirements into a Manifest catalog, run `usecaseapi manifest validate`, scaffold UseCaseAPI code, bind implementations in composition, or check Manifest/code synchronization.
+description: "Build UseCaseAPI Manifest YAML from conversation, validate it, and generate contract/usecase skeletons after explicit user approval. Use when a user wants to design usecaseapi.ucase.yaml, convert rough application usecase requirements into a Manifest catalog, run usecaseapi manifest validate, scaffold UseCaseAPI code, bind implementations in composition, or check Manifest/code synchronization."
 ---
 
 # Usecaseapi Manifest Builder
