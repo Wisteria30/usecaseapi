@@ -335,7 +335,6 @@ def test_manifest_docs_graph_and_diff_cover_contract_catalog() -> None:
     changed["usecases"][0]["deprecated"] = True
     added = deepcopy(changed["usecases"][0])
     added["name"] = "added.run"
-    added["namespace"] = "added"
     added["version"] = 1
     added["key"] = "added.run@v1"
     added["source"]["contract_module"] = "app.contracts.added.run.v1"

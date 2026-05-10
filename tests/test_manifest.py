@@ -175,7 +175,6 @@ def minimal_manifest() -> dict[str, Any]:
         "usecases": [
             {
                 "name": "example.run",
-                "namespace": "example",
                 "version": 1,
                 "source": {
                     "contract_module": "app.contracts.example.run.v1",
@@ -266,7 +265,6 @@ def test_manifest_validation_rejects_unsafe_type_expression() -> None:
         "usecases": [
             {
                 "name": "example.run",
-                "namespace": "example",
                 "version": 1,
                 "source": {
                     "contract_module": "app.contracts.example.run.v1",
@@ -307,10 +305,6 @@ def test_manifest_validation_rejects_unsafe_type_expression() -> None:
         (
             lambda manifest: manifest["usecases"][0].update({"domain": "example"}),
             "domain is not supported",
-        ),
-        (
-            lambda manifest: manifest["usecases"][0].update({"namespace": "other"}),
-            "namespace must be the first name segment",
         ),
         (lambda manifest: manifest["usecases"][0].update({"version": 0}), "version must be"),
         (lambda manifest: manifest["usecases"][0].update({"version": "1"}), "version must be"),
@@ -401,7 +395,6 @@ def test_manifest_validation_checks_error_boundaries() -> None:
         "usecases": [
             {
                 "name": "example.run",
-                "namespace": "example",
                 "version": 1,
                 "source": {
                     "contract_module": "app.contracts.example.run.v1",
@@ -498,7 +491,6 @@ usecases:
   - name: orders.place_order
     version: 1
     key: orders.place_order@v1
-    namespace: orders
     description: Place an order.
     stable: true
     deprecated: false
@@ -668,14 +660,6 @@ def test_manifest_cli_uses_yaml_for_export_validate_scaffold_docs_graph_and_diff
                 "manifest",
                 "export",
                 "composition:usecases",
-                "--project",
-                "basic",
-                "--package",
-                "commerce",
-                "--contracts-root",
-                "src/commerce",
-                "--implementations-root",
-                "src",
                 "--output",
                 str(manifest_path),
             ]
@@ -729,14 +713,6 @@ def test_basic_example_manifest_is_generated_from_composition(
                 "manifest",
                 "export",
                 "composition:usecases",
-                "--project",
-                "basic",
-                "--package",
-                "commerce",
-                "--contracts-root",
-                "src/commerce",
-                "--implementations-root",
-                "src",
                 "--output",
                 str(exported_path),
             ]
@@ -939,5 +915,32 @@ def test_manifest_named_helpers_cover_edge_branches(
     )
     assert manifest_module.find_ref_symbol(local_ref) is None
 
+    single_api = UseCaseAPI[None]()
+    single_api.bind(EXAMPLE, lambda caller: ExampleImpl())
+    monkeypatch.setattr(manifest_module, "source_file", lambda value: "example/usecases/run/v1.py")
+    single_manifest = manifest_from_api(single_api)
+    assert single_manifest["layout"] == {
+        "contracts_root": "example",
+        "implementations_root": ".",
+        "package": "example",
+    }
+    monkeypatch.setattr(manifest_module, "source_file", lambda value: None)
+    single_without_source_manifest = manifest_from_api(single_api)
+    assert single_without_source_manifest["layout"] == {
+        "contracts_root": "src/example",
+        "implementations_root": "src",
+        "package": "example",
+    }
+
+    multi_api = UseCaseAPI[None]()
+    multi_api.bind(EXAMPLE, lambda caller: ExampleImpl())
+    multi_api.bind(RICH, lambda caller: RichImpl())
+    multi_manifest = manifest_from_api(multi_api)
+    assert multi_manifest["layout"] == {
+        "contracts_root": "src",
+        "implementations_root": "src",
+    }
+
     assert manifest_module.semantic_manifest(minimal_manifest())["kind"] == MANIFEST_KIND
     assert manifest_module.project_name({}) is None
+    assert manifest_module.package_name({}) is None

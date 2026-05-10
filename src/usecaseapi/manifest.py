@@ -85,11 +85,20 @@ def manifest_from_api(
     *,
     project: str | None = None,
     package: str | None = None,
-    contracts_root: str = "app/contracts",
-    implementations_root: str = "app/usecases",
+    contracts_root: str | None = None,
+    implementations_root: str | None = None,
     include_json_schema: bool = False,
 ) -> dict[str, Any]:
     """Create a Manifest dictionary from a registered UseCaseAPI instance."""
+    resolved_package = package or infer_package(api)
+    resolved_implementations_root = implementations_root or infer_implementations_root(
+        api,
+        package=resolved_package,
+    )
+    resolved_contracts_root = contracts_root or infer_contracts_root(
+        package=resolved_package,
+        implementations_root=resolved_implementations_root,
+    )
     uses_by_key = {binding.ref.key: tuple(sorted(binding.uses)) for binding in api.bindings}
     binding_by_key = {binding.ref.key: binding for binding in api.bindings}
     usecases: list[dict[str, Any]] = []
@@ -99,9 +108,9 @@ def manifest_from_api(
             ref,
             uses=uses_by_key.get(ref.key, ()),
             include_json_schema=include_json_schema,
-            contracts_root=contracts_root,
-            implementations_root=implementations_root,
-            package=package,
+            contracts_root=resolved_contracts_root,
+            implementations_root=resolved_implementations_root,
+            package=resolved_package,
         )
         if binding is not None:
             source = cast(dict[str, Any], required_mapping(item.setdefault("source", {}), "source"))
@@ -116,11 +125,11 @@ def manifest_from_api(
         usecases.append(item)
 
     layout: dict[str, Any] = {
-        "contracts_root": contracts_root,
-        "implementations_root": implementations_root,
+        "contracts_root": resolved_contracts_root,
+        "implementations_root": resolved_implementations_root,
     }
-    if package is not None:
-        layout["package"] = package
+    if resolved_package is not None:
+        layout["package"] = resolved_package
 
     manifest: dict[str, Any] = {
         "kind": MANIFEST_KIND,
@@ -135,6 +144,42 @@ def manifest_from_api(
     }
     validate_manifest(manifest)
     return manifest
+
+
+def infer_package(api: UseCaseAPI[Any]) -> str | None:
+    """Infer a single package from registered usecase names."""
+    packages = {ref.contract.name.split(".")[0] for ref in api.contracts}
+    if len(packages) == 1:
+        return next(iter(packages))
+    return None
+
+
+def infer_implementations_root(api: UseCaseAPI[Any], *, package: str | None) -> str:
+    """Infer the v1.1 implementation root from contract source files."""
+    if package is None:
+        return "src"
+    for ref in api.contracts:
+        file_name = source_file(ref.protocol)
+        if file_name is None:
+            continue
+        parts = Path(file_name).parts
+        for index, part in enumerate(parts):
+            if part != package:
+                continue
+            if index > 0 and parts[index - 1] == "src":
+                return "src"
+            if index == 0:
+                return "."
+    return "src"
+
+
+def infer_contracts_root(*, package: str | None, implementations_root: str) -> str:
+    """Infer the contract root used for source path trimming."""
+    if package is None:
+        return implementations_root
+    if implementations_root == ".":
+        return package
+    return str(Path(implementations_root) / package)
 
 
 def dump_manifest(manifest: Mapping[str, Any], path: str | Path) -> None:
@@ -511,7 +556,6 @@ def ref_to_manifest_usecase(
         "name": contract.name,
         "version": contract.version,
         "key": contract.key,
-        "namespace": contract.name.split(".")[0],
         "description": contract.description,
         "stable": contract.stable,
         "deprecated": contract.deprecated,
@@ -727,12 +771,9 @@ def validate_usecase_identity(
     """Validate usecase name, version, and canonical key identity."""
     name = required_string(item, "name")
     if not valid_contract_name(name):
-        raise ManifestError(f"usecases[{index}].name must look like 'namespace.use_case'")
+        raise ManifestError(f"usecases[{index}].name must look like 'package.use_case'")
     if "domain" in item:
-        raise ManifestError(f"usecases[{index}].domain is not supported; use namespace")
-    namespace = required_string(item, "namespace")
-    if namespace != name.split(".")[0]:
-        raise ManifestError(f"usecases[{index}].namespace must be the first name segment")
+        raise ManifestError(f"usecases[{index}].domain is not supported; use layout.package")
     version = required_int(item, "version")
     if version < 1:
         raise ManifestError(f"usecases[{index}].version must be >= 1")
@@ -1365,7 +1406,6 @@ def semantic_manifest(manifest: Mapping[str, Any]) -> dict[str, Any]:
         "usecases": [
             {
                 "name": required_string(item, "name"),
-                "namespace": required_string(item, "namespace"),
                 "version": required_int(item, "version"),
                 "key": usecase_key(item),
                 "description": item.get("description"),

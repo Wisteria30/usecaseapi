@@ -12,10 +12,5 @@ This example demonstrates:
 Regenerate the Manifest from the composed API:
 
 ```bash
-PYTHONPATH=src uv run usecaseapi manifest export composition:usecases \
-  --project basic \
-  --package commerce \
-  --contracts-root src/commerce \
-  --implementations-root src \
-  --output usecaseapi.ucase.yaml
+PYTHONPATH=src uv run usecaseapi manifest export composition:usecases --output usecaseapi.ucase.yaml
 ```

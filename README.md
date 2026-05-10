@@ -191,10 +191,7 @@ See [docs/scaffold.md](docs/scaffold.md) for the generated layout and options.
 Export the canonical contract catalog:
 
 ```bash
-usecaseapi manifest export composition:usecases \
-  --project my-service \
-  --package commerce \
-  --output usecaseapi.ucase.yaml
+usecaseapi manifest export composition:usecases --output usecaseapi.ucase.yaml
 ```
 
 Validate it and check that code still matches it:

@@ -149,32 +149,12 @@ def diff(
 def manifest_export(
     target: Annotated[str, typer.Argument(help="Import path like 'composition:usecases'")],
     output: Annotated[str | None, typer.Option("--output", "-o")] = None,
-    project: Annotated[str | None, typer.Option(help="Project name for Manifest metadata")] = None,
-    package: Annotated[
-        str | None, typer.Option(help="Python package name for layout metadata")
-    ] = None,
-    contracts_root: Annotated[
-        str,
-        typer.Option(help="Root used to trim contract source paths"),
-    ] = "app/contracts",
-    implementations_root: Annotated[
-        str,
-        typer.Option(help="Default implementation root for generated Manifest entries"),
-    ] = "app/usecases",
-    include_json_schema: Annotated[
-        bool,
-        typer.Option(help="Include Pydantic JSON schemas in the Manifest"),
-    ] = False,
 ) -> None:
     """Export a UseCaseAPI Manifest from a composed API object."""
     api = load_api(target)
     manifest = manifest_from_api(
         api,
-        project=project,
-        package=package,
-        contracts_root=contracts_root,
-        implementations_root=implementations_root,
-        include_json_schema=include_json_schema,
+        project=Path.cwd().name,
     )
     if output is None:
         typer.echo(manifest_to_yaml(manifest), nl=False)

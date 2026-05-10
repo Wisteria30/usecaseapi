@@ -13,7 +13,6 @@ usecases:
 - name: commerce.check_availability
   version: 1
   key: commerce.check_availability@v1
-  namespace: commerce
   description: Checks available inventory inside the commerce package.
   stable: true
   deprecated: false
@@ -60,7 +59,6 @@ usecases:
 - name: commerce.checkout
   version: 1
   key: commerce.checkout@v1
-  namespace: commerce
   description: Workflow-style usecase that composes other usecases in-process.
   stable: true
   deprecated: false
@@ -108,7 +106,6 @@ usecases:
 - name: commerce.place_order
   version: 1
   key: commerce.place_order@v1
-  namespace: commerce
   description: Creates an order after inventory has been confirmed.
   stable: true
   deprecated: false

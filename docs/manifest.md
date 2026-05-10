@@ -32,12 +32,7 @@ locations.
 Export a Manifest from code:
 
 ```bash
-usecaseapi manifest export composition:usecases \
-  --project my-service \
-  --package commerce \
-  --contracts-root src/commerce \
-  --implementations-root src \
-  --output usecaseapi.ucase.yaml
+usecaseapi manifest export composition:usecases --output usecaseapi.ucase.yaml
 ```
 
 Validate a Manifest:
@@ -93,7 +88,6 @@ usecases:
   - name: commerce.place_order
     version: 1
     key: commerce.place_order@v1
-    namespace: commerce
     description: Creates an order after inventory has been confirmed.
     stable: true
     deprecated: false
@@ -183,8 +177,6 @@ Usecase fields:
 - `name`: stable dotted contract name, for example `commerce.place_order`.
 - `version`: integer major version.
 - `key`: canonical key, always `{name}@v{version}`.
-- `namespace`: first segment of `name`. In the standard scaffold layout this is the
-  same value as `layout.package`.
 - `description`: context for the usecase behavior. `manifest scaffold` renders it
   as the contract module docstring, Protocol docstring, implementation module
   docstring, implementation class docstring, and `Contract(description=...)`.
@@ -279,8 +271,9 @@ Use `description` on the usecase, input model, output model, and nested models.
 contract file, input model, output model, and usecase implementation carry the
 same context reviewers and LLM agents saw in the Manifest.
 
-Use `namespace` for Manifest usecase grouping. Do not use `domain` as a Manifest
-field; UseCaseAPI reserves "domain error" language for `UseCaseError` contracts.
+Use `layout.package` for the Python import package and filesystem package that
+owns the generated usecases. Do not use `domain` as a Manifest field; UseCaseAPI
+reserves "domain error" language for `UseCaseError` contracts.
 
 Use real Python exception classes for domain errors. `raises` is the public catch
 boundary. `known_errors` is the documented leaf-error list.

@@ -31,8 +31,6 @@ Use these source conventions:
 - `name`: `{package}.{usecase}` unless a narrower package/module decision is
   explicitly provided.
 - `key`: `{name}@v{version}`.
-- `namespace`: the first segment of `name`; in the standard scaffold layout this
-  is the same value as `layout.package`.
 - `source.contract_module`:
   `{package}.usecases.{usecase}.v{version}.{usecase}_contract`
 - `source.implementation_file`:
@@ -130,7 +128,6 @@ usecases:
   - name: package_name.usecase_name
     version: 1
     key: package_name.usecase_name@v1
-    namespace: package_name
     description: One sentence describing the usecase behavior and boundary.
     stable: true
     deprecated: false
@@ -181,11 +178,6 @@ usecaseapi manifest scaffold usecaseapi.ucase.yaml --root .
 If code already exists, export and compare:
 
 ```bash
-usecaseapi manifest export composition:usecases \
-  --project project-name \
-  --package package_name \
-  --contracts-root src/package_name \
-  --implementations-root src \
-  --output usecaseapi.ucase.yaml
+usecaseapi manifest export composition:usecases --output usecaseapi.ucase.yaml
 usecaseapi manifest check-sync composition:usecases usecaseapi.ucase.yaml
 ```
