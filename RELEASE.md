@@ -34,9 +34,10 @@ The `src/usecaseapi/__init__.py` module intentionally does not define
 Publishing is handled by `.github/workflows/release.yml`.
 
 On `main`, the workflow detects changes to `pyproject.toml` `[project].version`,
-validates the package, creates the annotated `v{version}` tag, and publishes to
-PyPI. Pushing a matching `v*` tag or running the workflow manually also publishes
-the current package version.
+validates the package, creates the annotated `v{version}` tag, creates a GitHub
+Release with generated release notes and distribution artifacts, and publishes
+to PyPI. Pushing a matching `v*` tag or running the workflow manually also
+publishes the current package version.
 
 The workflow expects PyPI Trusted Publishing:
 
@@ -55,5 +56,5 @@ The workflow uses GitHub OIDC and `uv publish`; no PyPI API token should be stor
 4. Create the `pypi` GitHub environment and require approval if desired.
 5. Review the generated package metadata and README rendering locally.
 6. Update `pyproject.toml` `[project].version` and changelog or GitHub release notes.
-7. Merge the version bump to `main`; GitHub Actions creates the annotated tag and publishes.
-8. Confirm the GitHub Actions release workflow completed and the PyPI project page is correct.
+7. Merge the version bump to `main`; GitHub Actions creates the annotated tag, creates the GitHub Release, and publishes.
+8. Confirm the GitHub Actions release workflow completed, the GitHub Release is correct, and the PyPI project page is correct.

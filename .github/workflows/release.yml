@@ -141,5 +141,15 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git tag -a "$TAG_NAME" -m "Release ${TAG_NAME}" "$GITHUB_SHA"
           git push origin "$TAG_NAME"
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ needs.check-version.outputs.tag_name }}
+        run: |
+          set -euo pipefail
+          gh release create "$TAG_NAME" dist/* \
+            --title "$TAG_NAME" \
+            --generate-notes \
+            --verify-tag
       - name: Publish
         run: uv publish

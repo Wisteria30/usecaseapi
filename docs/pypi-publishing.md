@@ -12,13 +12,15 @@ This repository is prepared for PyPI publishing through GitHub Actions and PyPI 
 - `trusted-publishing = "always"` is configured so release publishing fails if OIDC publishing is unavailable.
 - `pyproject.toml` `[project].version` is the release source of truth.
 - `.github/workflows/release.yml` creates `v{version}` when the project version changes on `main`.
+- `.github/workflows/release.yml` creates a GitHub Release with generated notes and distribution artifacts before publishing.
 - `.github/workflows/release.yml` validates tests, coverage, typing, linting, metadata, wheel install, source distribution install, and then publishes.
 - `.github/workflows/ci.yml` reports coverage in the GitHub Actions job summary for pull requests.
 
 ## Release workflow contract
 
 The release workflow watches `main` and creates an annotated `v{version}` tag
-when `pyproject.toml` `[project].version` changes. It also supports pushed tags
+when `pyproject.toml` `[project].version` changes. It then creates a GitHub
+Release for that tag before publishing to PyPI. It also supports pushed tags
 matching `v*` and manual dispatch.
 
 The PyPI Trusted Publisher should match:
@@ -38,8 +40,8 @@ The PyPI Trusted Publisher should match:
 6. Confirm project ownership metadata, maintainer identity, and support expectations.
 7. Update the release version in `pyproject.toml`.
 8. Prepare release notes.
-9. Merge the version bump to `main`; GitHub Actions creates the release tag and publishes.
-10. Review the published PyPI page, verified project links, files, and installation instructions.
+9. Merge the version bump to `main`; GitHub Actions creates the release tag, creates the GitHub Release, and publishes.
+10. Review the GitHub Release, published PyPI page, verified project links, files, and installation instructions.
 
 ## Local validation command
 

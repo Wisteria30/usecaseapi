@@ -3,7 +3,7 @@ revision = 3
 requires-python = ">=3.12, <3.15"
 
 [options]
-exclude-newer = "2026-05-03T05:40:34.104191Z"
+exclude-newer = "2026-05-03T08:27:52.419837Z"
 exclude-newer-span = "P7D"
 
 [[package]]
@@ -981,7 +981,7 @@ wheels = [
 
 [[package]]
 name = "usecaseapi"
-version = "1.1.0"
+version = "1.1.1"
 source = { editable = "." }
 dependencies = [
     { name = "pydantic" },
