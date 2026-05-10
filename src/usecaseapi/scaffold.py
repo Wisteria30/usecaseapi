@@ -36,126 +36,165 @@ class ScaffoldOptions:
     dry_run: bool = False
 
 
+@dataclass(frozen=True, slots=True)
+class ScaffoldNames:
+    """Derived Python identifiers for one scaffolded usecase."""
+
+    package_parts: tuple[str, ...]
+    usecase_name: str
+    class_name: str
+    constant_name: str
+    usecase_class_name: str
+    input_class_name: str
+    output_class_name: str
+
+    @classmethod
+    def from_contract_name(cls, name: str) -> ScaffoldNames:
+        """Derive scaffold identifiers from a dotted usecase contract name."""
+        parts = name.split(".")
+        usecase_name = parts[-1]
+        class_name = camel_class_name(usecase_name)
+        usecase_class_name = f"{class_name}UseCase"
+        return cls(
+            package_parts=tuple(parts[:-1]),
+            usecase_name=usecase_name,
+            class_name=class_name,
+            constant_name=f"{usecase_name.upper()}_USECASE",
+            usecase_class_name=usecase_class_name,
+            input_class_name=f"{usecase_class_name}Input",
+            output_class_name=f"{usecase_class_name}Output",
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class ScaffoldLayout:
+    """Filesystem and import paths for one scaffolded usecase version."""
+
+    contract_file: Path
+    implementation_file: Path
+    test_file: Path
+    contract_module: str
+    implementation_module: str
+    package_root: Path
+
+    @classmethod
+    def from_options(
+        cls,
+        options: ScaffoldOptions,
+        *,
+        names: ScaffoldNames,
+        version: int,
+    ) -> ScaffoldLayout:
+        """Derive filesystem and module paths from scaffold options."""
+        package_path = Path(*names.package_parts)
+        version_dir = (
+            options.output_root / package_path / "usecases" / names.usecase_name / f"v{version}"
+        )
+        module_parts = [
+            *names.package_parts,
+            "usecases",
+            names.usecase_name,
+            f"v{version}",
+        ]
+        return cls(
+            contract_file=version_dir / f"{names.usecase_name}_contract.py",
+            implementation_file=version_dir / f"{names.usecase_name}_usecase.py",
+            test_file=(
+                options.tests_root
+                / package_path
+                / "usecases"
+                / names.usecase_name
+                / f"v{version}"
+                / f"test_{names.usecase_name}.py"
+            ),
+            contract_module=".".join([*module_parts, f"{names.usecase_name}_contract"]),
+            implementation_module=".".join([*module_parts, f"{names.usecase_name}_usecase"]),
+            package_root=options.output_root / package_path,
+        )
+
+    def previous_contract_file(self, names: ScaffoldNames, *, version: int) -> Path:
+        """Return the contract file path for a previous scaffold version."""
+        return self.contract_file.parents[1] / f"v{version}" / f"{names.usecase_name}_contract.py"
+
+
 def scaffold_usecase(options: ScaffoldOptions) -> ScaffoldResult:
     """Create contract, implementation, and optional test files for one usecase."""
-    _validate_options(options)
-    parts = options.name.split(".")
-    package_parts = parts[:-1]
-    usecase_name = parts[-1]
-    version = _resolve_version(
+    validate_scaffold_options(options)
+    names = ScaffoldNames.from_contract_name(options.name)
+    version = resolve_scaffold_version(
         options,
-        package_parts=package_parts,
-        usecase_name=usecase_name,
+        package_parts=list(names.package_parts),
+        usecase_name=names.usecase_name,
     )
-
-    class_name = _camel(usecase_name)
-    constant_name = f"{usecase_name.upper()}_USECASE"
-    usecase_class_name = f"{class_name}UseCase"
-    input_class_name = f"{usecase_class_name}Input"
-    output_class_name = f"{usecase_class_name}Output"
-
-    version_dir = (
-        options.output_root / Path(*package_parts) / "usecases" / usecase_name / f"v{version}"
-    )
-    contract_file = version_dir / f"{usecase_name}_contract.py"
-    implementation_file = version_dir / f"{usecase_name}_usecase.py"
-    test_file = (
-        options.tests_root
-        / Path(*package_parts)
-        / "usecases"
-        / usecase_name
-        / f"v{version}"
-        / f"test_{usecase_name}.py"
-    )
-
-    contract_module = ".".join(
-        [
-            *package_parts,
-            "usecases",
-            usecase_name,
-            f"v{version}",
-            f"{usecase_name}_contract",
-        ]
-    )
-    implementation_module = ".".join(
-        [
-            *package_parts,
-            "usecases",
-            usecase_name,
-            f"v{version}",
-            f"{usecase_name}_usecase",
-        ]
-    )
+    layout = ScaffoldLayout.from_options(options, names=names, version=version)
 
     if options.next:
-        previous_contract_file = (
-            options.output_root
-            / Path(*package_parts)
-            / "usecases"
-            / usecase_name
-            / f"v{version - 1}"
-            / f"{usecase_name}_contract.py"
-        )
-        contract_content = _copy_contract_template(
-            previous_contract_file,
+        contract_content = copy_previous_contract_version(
+            layout.previous_contract_file(names, version=version - 1),
             source_version=version - 1,
             target_version=version,
         )
     else:
-        contract_content = _contract_template(
+        contract_content = contract_template(
             name=options.name,
             version=version,
-            class_name=class_name,
-            input_class_name=input_class_name,
-            output_class_name=output_class_name,
-            constant_name=constant_name,
+            class_name=names.class_name,
+            input_class_name=names.input_class_name,
+            output_class_name=names.output_class_name,
+            constant_name=names.constant_name,
         )
 
     created: list[Path] = []
 
-    _write_file(contract_file, contract_content, force=options.force, dry_run=options.dry_run)
-    created.append(contract_file)
+    write_scaffold_file(
+        layout.contract_file,
+        contract_content,
+        force=options.force,
+        dry_run=options.dry_run,
+    )
+    created.append(layout.contract_file)
 
-    _write_file(
-        implementation_file,
-        _implementation_template(
-            usecase_name=usecase_name,
-            class_name=usecase_class_name,
-            input_class_name=input_class_name,
-            output_class_name=output_class_name,
+    write_scaffold_file(
+        layout.implementation_file,
+        implementation_template(
+            usecase_name=names.usecase_name,
+            class_name=names.usecase_class_name,
+            input_class_name=names.input_class_name,
+            output_class_name=names.output_class_name,
         ),
         force=options.force,
         dry_run=options.dry_run,
     )
-    created.append(implementation_file)
+    created.append(layout.implementation_file)
 
-    _write_file(
-        test_file,
-        _test_template(
-            contract_module=contract_module,
-            implementation_module=implementation_module,
-            usecase_name=usecase_name,
-            class_name=class_name,
-            usecase_class_name=usecase_class_name,
-            constant_name=constant_name,
+    write_scaffold_file(
+        layout.test_file,
+        test_template(
+            contract_module=layout.contract_module,
+            implementation_module=layout.implementation_module,
+            usecase_name=names.usecase_name,
+            class_name=names.class_name,
+            usecase_class_name=names.usecase_class_name,
+            constant_name=names.constant_name,
             name=options.name,
             version=version,
         ),
         force=options.force,
         dry_run=options.dry_run,
     )
-    created.append(test_file)
+    created.append(layout.test_file)
 
     if not options.dry_run:
-        _ensure_init_files(
-            contract_file.parent,
-            stop_at=options.output_root / Path(*package_parts),
+        ensure_init_files(
+            layout.contract_file.parent,
+            stop_at=layout.package_root,
         )
 
     return ScaffoldResult(files=tuple(created), version=version)
 
 
-def _validate_options(options: ScaffoldOptions) -> None:
+def validate_scaffold_options(options: ScaffoldOptions) -> None:
+    """Validate scaffold options before deriving paths or writing files."""
     if options.version is not None and options.version < 1:
         raise ValueError("version must be >= 1")
     if options.version is not None and options.next:
@@ -164,12 +203,13 @@ def _validate_options(options: ScaffoldOptions) -> None:
         raise ValueError("usecase name must look like 'domain.use_case'")
 
 
-def _resolve_version(
+def resolve_scaffold_version(
     options: ScaffoldOptions,
     *,
     package_parts: list[str],
     usecase_name: str,
 ) -> int:
+    """Resolve the target scaffold version from explicit and next-version options."""
     if options.version is not None:
         return options.version
 
@@ -189,7 +229,8 @@ def _resolve_version(
     return 1
 
 
-def _write_file(path: Path, content: str, *, force: bool, dry_run: bool) -> None:
+def write_scaffold_file(path: Path, content: str, *, force: bool, dry_run: bool) -> None:
+    """Write one scaffolded file with explicit overwrite behavior."""
     if path.exists() and not force:
         raise FileExistsError(f"{path} already exists; pass force=True to overwrite")
     if dry_run:
@@ -198,12 +239,13 @@ def _write_file(path: Path, content: str, *, force: bool, dry_run: bool) -> None
     path.write_text(content)
 
 
-def _copy_contract_template(
+def copy_previous_contract_version(
     previous_contract_file: Path,
     *,
     source_version: int,
     target_version: int,
 ) -> str:
+    """Copy a previous contract version and update supported version markers."""
     if not previous_contract_file.exists():
         raise FileNotFoundError(f"previous contract file does not exist: {previous_contract_file}")
 
@@ -223,7 +265,8 @@ def _copy_contract_template(
     return content
 
 
-def _ensure_init_files(directory: Path, *, stop_at: Path) -> None:
+def ensure_init_files(directory: Path, *, stop_at: Path) -> None:
+    """Create package marker files from a scaffold directory up to the package root."""
     current = directory
     while True:
         init_file = current / "__init__.py"
@@ -234,11 +277,12 @@ def _ensure_init_files(directory: Path, *, stop_at: Path) -> None:
         current = current.parent
 
 
-def _camel(value: str) -> str:
+def camel_class_name(value: str) -> str:
+    """Convert a snake_case usecase name into a PascalCase class stem."""
     return "".join(part.capitalize() for part in value.split("_"))
 
 
-def _contract_template(
+def contract_template(
     *,
     name: str,
     version: int,
@@ -247,6 +291,7 @@ def _contract_template(
     output_class_name: str,
     constant_name: str,
 ) -> str:
+    """Render the Python contract module for a scaffolded usecase."""
     error_name = f"{class_name}Error"
     return f'''from __future__ import annotations
 
@@ -300,13 +345,14 @@ class {class_name}(
 '''
 
 
-def _implementation_template(
+def implementation_template(
     *,
     usecase_name: str,
     class_name: str,
     input_class_name: str,
     output_class_name: str,
 ) -> str:
+    """Render the Python implementation module for a scaffolded usecase."""
     return f"""from __future__ import annotations
 
 from .{usecase_name}_contract import (
@@ -325,7 +371,7 @@ class {class_name}:
 """
 
 
-def _test_template(
+def test_template(
     *,
     contract_module: str,
     implementation_module: str,
@@ -336,6 +382,7 @@ def _test_template(
     name: str,
     version: int,
 ) -> str:
+    """Render the pytest module for a scaffolded usecase."""
     return f'''"""Tests for {name} v{version}."""
 
 from __future__ import annotations

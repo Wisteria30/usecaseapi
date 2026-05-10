@@ -95,16 +95,18 @@ def manifest_from_api(
     usecases: list[dict[str, Any]] = []
     for ref in sorted(api.contracts, key=lambda item: item.key):
         binding = binding_by_key.get(ref.key)
-        item = _ref_to_manifest_usecase(
+        item = ref_to_manifest_usecase(
             ref,
             uses=uses_by_key.get(ref.key, ()),
             include_json_schema=include_json_schema,
             contracts_root=contracts_root,
+            implementations_root=implementations_root,
+            package=package,
         )
         if binding is not None:
-            source = cast(dict[str, Any], _mapping(item.setdefault("source", {}), "source"))
-            source["binding_factory"] = _qualname(binding.factory)
-            binding_file = _source_file(binding.factory)
+            source = cast(dict[str, Any], required_mapping(item.setdefault("source", {}), "source"))
+            source["binding_factory"] = qualname(binding.factory)
+            binding_file = source_file(binding.factory)
             if binding_file is not None:
                 source["binding_file"] = binding_file
             if binding.description is not None:
@@ -174,7 +176,7 @@ def validate_manifest(manifest: Mapping[str, Any]) -> None:
     for index, item in enumerate(usecases):
         if not isinstance(item, Mapping):
             raise ManifestError(f"usecases[{index}] must be a mapping")
-        _validate_usecase_manifest(item, seen_keys=seen_keys, index=index)
+        validate_usecase_manifest(item, seen_keys=seen_keys, index=index)
 
 
 def scaffold_from_manifest(
@@ -190,26 +192,26 @@ def scaffold_from_manifest(
     root_path = Path(root)
     layout = manifest.get("layout")
     layout_mapping = layout if isinstance(layout, Mapping) else {}
-    contracts_root = _string_or_default(layout_mapping.get("contracts_root"), "app/contracts")
-    implementations_root = _string_or_default(
+    contracts_root = string_or_default(layout_mapping.get("contracts_root"), "app/contracts")
+    implementations_root = string_or_default(
         layout_mapping.get("implementations_root"),
         "app/usecases",
     )
 
     created: list[Path] = []
     skipped: list[Path] = []
-    for usecase in _usecase_items(manifest):
-        source = _mapping(usecase.get("source"), "usecase.source")
-        contract_file = root_path / _string_or_default(
+    for usecase in usecase_items(manifest):
+        source = required_mapping(usecase.get("source"), "usecase.source")
+        contract_file = root_path / string_or_default(
             source.get("contract_file"),
-            _default_contract_file(usecase, contracts_root=contracts_root),
+            default_contract_file(usecase, contracts_root=contracts_root),
         )
-        implementation_file = root_path / _string_or_default(
+        implementation_file = root_path / string_or_default(
             source.get("implementation_file"),
-            _default_implementation_file(usecase, implementations_root=implementations_root),
+            default_implementation_file(usecase, implementations_root=implementations_root),
         )
 
-        _write_generated_file(
+        write_generated_file(
             contract_file,
             render_contract_module(usecase),
             force=force,
@@ -221,7 +223,7 @@ def scaffold_from_manifest(
             if implementation_file.exists() and not force:
                 skipped.append(implementation_file)
             else:
-                _write_generated_file(
+                write_generated_file(
                     implementation_file,
                     render_implementation_module(usecase),
                     force=force,
@@ -230,52 +232,52 @@ def scaffold_from_manifest(
                 created.append(implementation_file)
 
         if not dry_run:
-            _ensure_init_files(contract_file.parent, stop_at=root_path)
+            ensure_init_files(contract_file.parent, stop_at=root_path)
             if create_implementation:
-                _ensure_init_files(implementation_file.parent, stop_at=root_path)
+                ensure_init_files(implementation_file.parent, stop_at=root_path)
 
     return ManifestScaffoldResult(files=tuple(created), skipped=tuple(skipped))
 
 
 def render_contract_module(usecase: Mapping[str, Any]) -> str:
     """Render one contract module from one Manifest usecase."""
-    _validate_usecase_manifest(usecase, seen_keys=set(), index=0)
-    source = _mapping(usecase.get("source"), "usecase.source")
-    protocol_class = _required_string(source, "protocol_class")
-    ref = _required_string(source, "ref")
-    input_name = _required_string(usecase, "input")
-    output_name = _required_string(usecase, "output")
-    name = _required_string(usecase, "name")
-    version = _required_int(usecase, "version")
+    validate_usecase_manifest(usecase, seen_keys=set(), index=0)
+    source = required_mapping(usecase.get("source"), "usecase.source")
+    protocol_class = required_string(source, "protocol_class")
+    ref = required_string(source, "ref")
+    input_name = required_string(usecase, "input")
+    output_name = required_string(usecase, "output")
+    name = required_string(usecase, "name")
+    version = required_int(usecase, "version")
     description = usecase.get("description")
     stable = bool(usecase.get("stable", True))
     deprecated = bool(usecase.get("deprecated", False))
     superseded_by = usecase.get("superseded_by")
-    tags = _string_list(usecase.get("tags"))
-    raises = _string_list(usecase.get("raises"))
-    known_errors = _string_list(usecase.get("known_errors"))
-    models = _manifest_models(usecase)
-    errors = _manifest_errors(usecase)
+    tags = string_list(usecase.get("tags"))
+    raises = string_list(usecase.get("raises"))
+    known_errors = string_list(usecase.get("known_errors"))
+    models = manifest_models(usecase)
+    errors = manifest_errors(usecase)
 
-    type_exprs = _collect_type_exprs(models, errors)
+    type_exprs = collect_type_exprs(models, errors)
     lines: list[str] = ["from __future__ import annotations", ""]
-    lines.extend(_stdlib_import_lines(type_exprs))
-    lines.append(f"from typing import {', '.join(_typing_imports(type_exprs, errors))}")
+    lines.extend(stdlib_import_lines(type_exprs))
+    lines.append(f"from typing import {', '.join(typing_imports(type_exprs, errors))}")
     lines.extend(["", "from usecaseapi import ("])
-    for import_name in _usecaseapi_imports(errors):
+    for import_name in usecaseapi_imports(errors):
         lines.append(f"    {import_name},")
     lines.extend([")", "", ""])
 
     for model in models:
-        lines.extend(_render_model_class(model))
+        lines.extend(render_model_class(model))
         lines.append("")
 
     for error in errors:
-        lines.extend(_render_error_class(error))
+        lines.extend(render_error_class(error))
         lines.append("")
 
     lines.extend(
-        _render_contract_binding(
+        render_contract_binding(
             protocol_class=protocol_class,
             input_name=input_name,
             output_name=output_name,
@@ -296,16 +298,16 @@ def render_contract_module(usecase: Mapping[str, Any]) -> str:
 
 def render_implementation_module(usecase: Mapping[str, Any]) -> str:
     """Render one implementation skeleton from one Manifest usecase."""
-    _validate_usecase_manifest(usecase, seen_keys=set(), index=0)
-    source = _mapping(usecase.get("source"), "usecase.source")
-    contract_module = _required_string(source, "contract_module")
-    protocol_class = _required_string(source, "protocol_class")
-    implementation_class = _string_or_default(
+    validate_usecase_manifest(usecase, seen_keys=set(), index=0)
+    source = required_mapping(usecase.get("source"), "usecase.source")
+    contract_module = required_string(source, "contract_module")
+    protocol_class = required_string(source, "protocol_class")
+    implementation_class = string_or_default(
         source.get("implementation_class"),
         protocol_class + "Impl",
     )
-    input_name = _required_string(usecase, "input")
-    output_name = _required_string(usecase, "output")
+    input_name = required_string(usecase, "input")
+    output_name = required_string(usecase, "output")
     return f'''from __future__ import annotations
 
 from {contract_module} import {input_name}, {output_name}, {protocol_class}
@@ -330,26 +332,26 @@ def render_manifest_markdown(manifest: Mapping[str, Any]) -> str:
     metadata = manifest.get("metadata")
     if isinstance(metadata, Mapping) and isinstance(metadata.get("name"), str):
         lines.extend([f"Project: `{metadata['name']}`", ""])
-    for item in _usecase_items(manifest):
-        key = _usecase_key(item)
-        lines.extend([f"## {_required_string(item, 'name')} v{_required_int(item, 'version')}", ""])
+    for item in usecase_items(manifest):
+        key = usecase_key(item)
+        lines.extend([f"## {required_string(item, 'name')} v{required_int(item, 'version')}", ""])
         description = item.get("description")
         if isinstance(description, str) and description:
             lines.extend([description, ""])
         lines.extend(
             [
                 f"- Key: `{key}`",
-                f"- Input: `{_required_string(item, 'input')}`",
-                f"- Output: `{_required_string(item, 'output')}`",
+                f"- Input: `{required_string(item, 'input')}`",
+                f"- Output: `{required_string(item, 'output')}`",
             ]
         )
-        uses = _string_list(item.get("uses"))
+        uses = string_list(item.get("uses"))
         if uses:
             lines.append("- Uses: " + ", ".join(f"`{use}`" for use in uses))
-        raises = _string_list(item.get("raises"))
+        raises = string_list(item.get("raises"))
         if raises:
             lines.append("- Raises: " + ", ".join(f"`{error}`" for error in raises))
-        known_errors = _string_list(item.get("known_errors"))
+        known_errors = string_list(item.get("known_errors"))
         if known_errors:
             lines.append("- Known errors: " + ", ".join(f"`{error}`" for error in known_errors))
         lines.append("")
@@ -360,12 +362,12 @@ def render_manifest_graph(manifest: Mapping[str, Any]) -> str:
     """Render a Mermaid graph from a Manifest."""
     validate_manifest(manifest)
     lines = ["graph TD"]
-    for item in _usecase_items(manifest):
-        key = _usecase_key(item)
-        node_id = _node_id(key)
-        lines.append(f'  {node_id}["{key}"]')
-        for used_key in _string_list(item.get("uses")):
-            lines.append(f"  {node_id} --> {_node_id(used_key)}")
+    for item in usecase_items(manifest):
+        key = usecase_key(item)
+        current_node_id = node_id(key)
+        lines.append(f'  {current_node_id}["{key}"]')
+        for used_key in string_list(item.get("uses")):
+            lines.append(f"  {current_node_id} --> {node_id(used_key)}")
     return "\n".join(lines) + "\n"
 
 
@@ -373,15 +375,15 @@ def diff_manifests(old: Mapping[str, Any], new: Mapping[str, Any]) -> ManifestDi
     """Compare two Manifest catalogs with conservative contract checks."""
     validate_manifest(old)
     validate_manifest(new)
-    old_cases = _index_usecases(old)
-    new_cases = _index_usecases(new)
+    old_cases = index_usecases(old)
+    new_cases = index_usecases(new)
     breaking: list[str] = []
     warnings: list[str] = []
     additions: list[str] = []
 
-    _collect_added_removed(old_cases, new_cases, breaking=breaking, additions=additions)
+    collect_added_removed(old_cases, new_cases, breaking=breaking, additions=additions)
     for key in sorted(set(old_cases) & set(new_cases)):
-        _collect_changed_usecase(
+        collect_changed_usecase(
             key,
             old_cases[key],
             new_cases[key],
@@ -399,25 +401,26 @@ def diff_manifests(old: Mapping[str, Any], new: Mapping[str, Any]) -> ManifestDi
 def diff_manifest_with_api(api: UseCaseAPI[Any], manifest: Mapping[str, Any]) -> ManifestDiff:
     """Compare a Manifest file with the Manifest exported from code."""
     exported = manifest_from_api(
-        api, project=_project_name(manifest), package=_package_name(manifest)
+        api, project=project_name(manifest), package=package_name(manifest)
     )
     return diff_manifests(manifest, exported)
 
 
-def _collect_added_removed(
+def collect_added_removed(
     old_cases: Mapping[str, Mapping[str, Any]],
     new_cases: Mapping[str, Mapping[str, Any]],
     *,
     breaking: list[str],
     additions: list[str],
 ) -> None:
+    """Collect added and removed usecase keys."""
     for key in sorted(set(old_cases) - set(new_cases)):
         breaking.append(f"removed usecase {key}")
     for key in sorted(set(new_cases) - set(old_cases)):
         additions.append(f"added usecase {key}")
 
 
-def _collect_changed_usecase(
+def collect_changed_usecase(
     key: str,
     old_case: Mapping[str, Any],
     new_case: Mapping[str, Any],
@@ -425,15 +428,16 @@ def _collect_changed_usecase(
     breaking: list[str],
     warnings: list[str],
 ) -> None:
-    if _required_string(old_case, "input") != _required_string(new_case, "input"):
+    """Collect semantic changes for one shared usecase."""
+    if required_string(old_case, "input") != required_string(new_case, "input"):
         breaking.append(f"changed input model for {key}")
-    if _required_string(old_case, "output") != _required_string(new_case, "output"):
+    if required_string(old_case, "output") != required_string(new_case, "output"):
         breaking.append(f"changed output model for {key}")
-    if _model_field_changes(old_case, new_case):
+    if model_field_changes(old_case, new_case):
         breaking.append(f"changed model fields for {key}")
-    if _error_map(old_case) != _error_map(new_case):
+    if error_map(old_case) != error_map(new_case):
         breaking.append(f"changed errors for {key}")
-    _collect_removed_values(
+    collect_removed_values(
         key,
         old_case,
         new_case,
@@ -444,7 +448,7 @@ def _collect_changed_usecase(
         warnings.append(f"deprecated usecase {key}")
 
 
-def _collect_removed_values(
+def collect_removed_values(
     key: str,
     old_case: Mapping[str, Any],
     new_case: Mapping[str, Any],
@@ -452,37 +456,46 @@ def _collect_removed_values(
     breaking: list[str],
     warnings: list[str],
 ) -> None:
+    """Collect removed declared errors and dependencies."""
     removed_raises = sorted(
-        set(_string_list(old_case.get("raises"))) - set(_string_list(new_case.get("raises")))
+        set(string_list(old_case.get("raises"))) - set(string_list(new_case.get("raises")))
     )
     if removed_raises:
         breaking.append(f"removed declared errors for {key}: {', '.join(removed_raises)}")
     removed_uses = sorted(
-        set(_string_list(old_case.get("uses"))) - set(_string_list(new_case.get("uses")))
+        set(string_list(old_case.get("uses"))) - set(string_list(new_case.get("uses")))
     )
     if removed_uses:
         warnings.append(f"removed declared uses for {key}: {', '.join(removed_uses)}")
 
 
-def _ref_to_manifest_usecase(
+def ref_to_manifest_usecase(
     ref: UseCaseRef[Any, Any],
     *,
     uses: Sequence[str],
     include_json_schema: bool,
     contracts_root: str,
+    implementations_root: str,
+    package: str | None,
 ) -> dict[str, Any]:
+    """Convert one usecase reference into Manifest usecase metadata."""
     contract = ref.contract
-    contract_file = _source_file(ref.protocol)
+    contract_file = source_file(ref.protocol)
     module_name = ref.protocol.__module__
     source: dict[str, Any] = {
         "contract_module": module_name,
         "protocol_class": ref.protocol.__qualname__,
-        "implementation_class": ref.protocol.__qualname__ + "Impl",
-        "implementation_file": _default_implementation_path(contract.name),
-        "ref": _find_ref_symbol(ref) or _default_ref_symbol(contract.name),
+        "implementation_class": default_implementation_class(contract.name),
+        "implementation_file": default_implementation_path(
+            contract.name,
+            version=contract.version,
+            implementations_root=implementations_root,
+            package=package,
+        ),
+        "ref": find_ref_symbol(ref) or default_ref_symbol(contract.name),
     }
     if contract_file is not None:
-        source["contract_file"] = _trim_to_root(contract_file, contracts_root)
+        source["contract_file"] = trim_to_root(contract_file, contracts_root)
 
     item: dict[str, Any] = {
         "name": contract.name,
@@ -504,11 +517,11 @@ def _ref_to_manifest_usecase(
         "input": contract.input.__name__,
         "output": contract.output.__name__,
         "models": [
-            _model_to_manifest(model) for model in _collect_models(contract.input, contract.output)
+            model_to_manifest(model) for model in collect_models(contract.input, contract.output)
         ],
-        "errors": [_error_to_manifest(error_type) for error_type in _collect_errors(contract)],
-        "raises": [_class_name(error_type) for error_type in contract.raises],
-        "known_errors": [_class_name(error_type) for error_type in contract.known_errors],
+        "errors": [error_to_manifest(error_type) for error_type in collect_errors(contract)],
+        "raises": [class_name(error_type) for error_type in contract.raises],
+        "known_errors": [class_name(error_type) for error_type in contract.known_errors],
         "uses": list(uses),
     }
     if include_json_schema:
@@ -516,23 +529,25 @@ def _ref_to_manifest_usecase(
             "input": contract.input.model_json_schema(),
             "output": contract.output.model_json_schema(),
         }
-    return _without_none(item)
+    return without_none(item)
 
 
-def _model_to_manifest(model_type: type[Model]) -> dict[str, Any]:
+def model_to_manifest(model_type: type[Model]) -> dict[str, Any]:
+    """Convert a Model class into Manifest model metadata."""
     return {
         "name": model_type.__name__,
         "module": model_type.__module__,
         "fields": [
-            _field_to_manifest(name, field) for name, field in model_type.model_fields.items()
+            field_to_manifest(name, field) for name, field in model_type.model_fields.items()
         ],
     }
 
 
-def _field_to_manifest(name: str, field: FieldInfo) -> dict[str, Any]:
+def field_to_manifest(name: str, field: FieldInfo) -> dict[str, Any]:
+    """Convert a Pydantic field into Manifest field metadata."""
     item: dict[str, Any] = {
         "name": name,
-        "type": _format_annotation(field.annotation),
+        "type": format_annotation(field.annotation),
         "required": field.is_required(),
     }
     if field.description is not None:
@@ -540,7 +555,8 @@ def _field_to_manifest(name: str, field: FieldInfo) -> dict[str, Any]:
     return item
 
 
-def _error_to_manifest(error_type: type[UseCaseError]) -> dict[str, Any]:
+def error_to_manifest(error_type: type[UseCaseError]) -> dict[str, Any]:
+    """Convert a UseCaseError class into Manifest error metadata."""
     bases = [base for base in error_type.__bases__ if issubclass(base, UseCaseError)]
     base_name = bases[0].__name__ if bases else "UseCaseError"
     return {
@@ -548,11 +564,12 @@ def _error_to_manifest(error_type: type[UseCaseError]) -> dict[str, Any]:
         "module": error_type.__module__,
         "base": base_name,
         "code": getattr(error_type, "code", ""),
-        "fields": _error_fields(error_type),
+        "fields": error_fields(error_type),
     }
 
 
-def _error_fields(error_type: type[UseCaseError]) -> list[dict[str, Any]]:
+def error_fields(error_type: type[UseCaseError]) -> list[dict[str, Any]]:
+    """Extract public constructor and annotated fields from an error class."""
     try:
         hints = get_type_hints(error_type)
     except (NameError, TypeError):
@@ -562,7 +579,7 @@ def _error_fields(error_type: type[UseCaseError]) -> list[dict[str, Any]]:
     for name, annotation in hints.items():
         if name == "code" or get_origin(annotation) is ClassVar:
             continue
-        fields.append({"name": name, "type": _format_annotation(annotation), "required": True})
+        fields.append({"name": name, "type": format_annotation(annotation), "required": True})
         seen.add(name)
 
     try:
@@ -584,7 +601,7 @@ def _error_fields(error_type: type[UseCaseError]) -> list[dict[str, Any]]:
         fields.append(
             {
                 "name": parameter.name,
-                "type": _format_annotation(annotation),
+                "type": format_annotation(annotation),
                 "required": parameter.default is inspect.Signature.empty,
             }
         )
@@ -592,7 +609,8 @@ def _error_fields(error_type: type[UseCaseError]) -> list[dict[str, Any]]:
     return fields
 
 
-def _collect_models(*roots: type[Model]) -> tuple[type[Model], ...]:
+def collect_models(*roots: type[Model]) -> tuple[type[Model], ...]:
+    """Collect root and nested Model classes in dependency order."""
     seen: set[type[Model]] = set()
     ordered: list[type[Model]] = []
 
@@ -601,7 +619,7 @@ def _collect_models(*roots: type[Model]) -> tuple[type[Model], ...]:
             return
         seen.add(model_type)
         for field in model_type.model_fields.values():
-            for nested in _model_types_from_annotation(field.annotation):
+            for nested in model_types_from_annotation(field.annotation):
                 visit(nested)
         ordered.append(model_type)
 
@@ -610,7 +628,8 @@ def _collect_models(*roots: type[Model]) -> tuple[type[Model], ...]:
     return tuple(ordered)
 
 
-def _model_types_from_annotation(annotation: object) -> tuple[type[Model], ...]:
+def model_types_from_annotation(annotation: object) -> tuple[type[Model], ...]:
+    """Return nested Model classes referenced by an annotation."""
     if inspect.isclass(annotation) and issubclass(annotation, Model):
         return (annotation,)
     origin = get_origin(annotation)
@@ -618,11 +637,12 @@ def _model_types_from_annotation(annotation: object) -> tuple[type[Model], ...]:
         return ()
     found: list[type[Model]] = []
     for arg in get_args(annotation):
-        found.extend(_model_types_from_annotation(arg))
+        found.extend(model_types_from_annotation(arg))
     return tuple(found)
 
 
-def _collect_errors(contract: Any) -> tuple[type[UseCaseError], ...]:
+def collect_errors(contract: Any) -> tuple[type[UseCaseError], ...]:
+    """Collect declared and known error classes without duplicates."""
     seen: set[type[UseCaseError]] = set()
     ordered: list[type[UseCaseError]] = []
     for error_type in (*contract.raises, *contract.known_errors):
@@ -632,7 +652,8 @@ def _collect_errors(contract: Any) -> tuple[type[UseCaseError], ...]:
     return tuple(ordered)
 
 
-def _format_annotation(annotation: object) -> str:
+def format_annotation(annotation: object) -> str:
+    """Render an annotation as a Manifest type expression."""
     if annotation is None or annotation is type(None):
         return "None"
     if annotation is Any:
@@ -640,59 +661,63 @@ def _format_annotation(annotation: object) -> str:
     if inspect.isclass(annotation):
         return annotation.__name__
     origin = get_origin(annotation)
-    return _format_origin_annotation(origin, annotation)
+    return format_origin_annotation(origin, annotation)
 
 
-def _format_origin_annotation(origin: object, annotation: object) -> str:
+def format_origin_annotation(origin: object, annotation: object) -> str:
+    """Render a parametrized or union annotation."""
     if origin is Literal:
         values = ", ".join(repr(arg) for arg in get_args(annotation))
         return f"Literal[{values}]"
     if origin is Union or origin is types.UnionType:
-        return " | ".join(_format_annotation(arg) for arg in get_args(annotation))
+        return " | ".join(format_annotation(arg) for arg in get_args(annotation))
     if origin in (list, dict, set, tuple):
-        return _format_collection_annotation(origin, get_args(annotation))
+        return format_collection_annotation(origin, get_args(annotation))
     return str(annotation).replace("typing.", "")
 
 
-def _format_collection_annotation(origin: object, args: tuple[object, ...]) -> str:
+def format_collection_annotation(origin: object, args: tuple[object, ...]) -> str:
+    """Render built-in collection annotations."""
     if origin is list and args:
-        return f"list[{_format_annotation(args[0])}]"
+        return f"list[{format_annotation(args[0])}]"
     if origin is set and args:
-        return f"set[{_format_annotation(args[0])}]"
+        return f"set[{format_annotation(args[0])}]"
     if origin is dict and len(args) == 2:
-        return f"dict[{_format_annotation(args[0])}, {_format_annotation(args[1])}]"
+        return f"dict[{format_annotation(args[0])}, {format_annotation(args[1])}]"
     if origin is tuple and args:
-        return "tuple[" + ", ".join(_format_annotation(arg) for arg in args) + "]"
+        return "tuple[" + ", ".join(format_annotation(arg) for arg in args) + "]"
     return str(origin).replace("typing.", "")
 
 
-def _validate_usecase_manifest(
+def validate_usecase_manifest(
     item: Mapping[str, Any],
     *,
     seen_keys: set[str],
     index: int,
 ) -> None:
-    key = _validate_usecase_identity(item, seen_keys=seen_keys, index=index)
-    _validate_source(item, index=index)
-    _validate_models(item, index=index)
-    error_base_by_name = _validate_errors(item)
-    _validate_error_boundaries(item, error_base_by_name)
-    _validate_uses(item, key=key)
+    """Validate one Manifest usecase entry."""
+    key = validate_usecase_identity(item, seen_keys=seen_keys, index=index)
+    validate_source(item, index=index)
+    validate_models(item, index=index)
+    error_base_by_name = validate_errors(item)
+    validate_error_boundaries(item, error_base_by_name)
+    validate_uses(item, key=key)
 
 
-def _validate_usecase_identity(
+def validate_usecase_identity(
     item: Mapping[str, Any],
     *,
     seen_keys: set[str],
     index: int,
 ) -> str:
-    name = _required_string(item, "name")
-    if not _valid_contract_name(name):
+    """Validate usecase name, version, and canonical key identity."""
+    name = required_string(item, "name")
+    if not valid_contract_name(name):
         raise ManifestError(f"usecases[{index}].name must look like 'domain.use_case'")
-    version = _required_int(item, "version")
+    version = required_int(item, "version")
     if version < 1:
         raise ManifestError(f"usecases[{index}].version must be >= 1")
-    key = _string_or_default(item.get("key"), f"{name}@v{version}")
+    key = string_or_default(item.get("key"), f"{name}@v{version}")
     if key != f"{name}@v{version}":
         raise ManifestError(f"usecases[{index}].key must be '{name}@v{version}'")
     if key in seen_keys:
@@ -701,81 +726,86 @@ def _validate_usecase_identity(
     return key
 
 
-def _validate_source(item: Mapping[str, Any], *, index: int) -> None:
-    source = _mapping(item.get("source"), f"usecases[{index}].source")
+def validate_source(item: Mapping[str, Any], *, index: int) -> None:
+    """Validate source mapping for one usecase."""
+    source = required_mapping(item.get("source"), f"usecases[{index}].source")
     for field_name in ("contract_module", "protocol_class", "ref"):
-        value = _required_string(source, field_name)
+        value = required_string(source, field_name)
         if field_name == "contract_module":
-            if not _valid_module_path(value):
+            if not valid_module_path(value):
                 raise ManifestError(f"usecases[{index}].source.contract_module is invalid")
         elif not value.isidentifier():
             raise ManifestError(f"usecases[{index}].source.{field_name} must be an identifier")
 
 
-def _validate_models(item: Mapping[str, Any], *, index: int) -> None:
-    input_name = _required_string(item, "input")
-    output_name = _required_string(item, "output")
+def validate_models(item: Mapping[str, Any], *, index: int) -> None:
+    """Validate model declarations for one usecase."""
+    input_name = required_string(item, "input")
+    output_name = required_string(item, "output")
     if not input_name.isidentifier() or not output_name.isidentifier():
         raise ManifestError(f"usecases[{index}].input/output must be identifiers")
 
     model_names: set[str] = set()
-    for model in _manifest_models(item):
-        model_name = _required_string(model, "name")
+    for model in manifest_models(item):
+        model_name = required_string(model, "name")
         if not model_name.isidentifier():
             raise ManifestError(f"model name must be an identifier: {model_name!r}")
         if model_name in model_names:
             raise ManifestError(f"duplicate model name {model_name!r}")
         model_names.add(model_name)
-        for field in _manifest_fields(model):
-            _validate_field(field, context=f"model {model_name}")
+        for field in manifest_fields(model):
+            validate_field(field, context=f"model {model_name}")
     if input_name not in model_names:
         raise ManifestError(f"input model {input_name!r} is not defined in models")
     if output_name not in model_names:
         raise ManifestError(f"output model {output_name!r} is not defined in models")
 
 
-def _validate_errors(item: Mapping[str, Any]) -> dict[str, str]:
-    errors = _manifest_errors(item)
+def validate_errors(item: Mapping[str, Any]) -> dict[str, str]:
+    """Validate error declarations and return base metadata by name."""
+    errors = manifest_errors(item)
     error_names: set[str] = {"UseCaseError"}
     error_base_by_name: dict[str, str] = {}
     for error in errors:
-        error_name = _required_string(error, "name")
+        error_name = required_string(error, "name")
         if not error_name.isidentifier():
             raise ManifestError(f"error name must be an identifier: {error_name!r}")
         if error_name in error_names:
             raise ManifestError(f"duplicate error name {error_name!r}")
-        _required_string(error, "code")
-        base = _string_or_default(error.get("base"), "UseCaseError")
+        required_string(error, "code")
+        base = string_or_default(error.get("base"), "UseCaseError")
         error_names.add(error_name)
         error_base_by_name[error_name] = base
-        for field in _manifest_fields(error):
-            _validate_field(field, context=f"error {error_name}")
+        for field in manifest_fields(error):
+            validate_field(field, context=f"error {error_name}")
     for error_name, base in error_base_by_name.items():
         if base not in error_names:
             raise ManifestError(f"error {error_name} extends unknown base {base!r}")
     return error_base_by_name
 
 
-def _validate_error_boundaries(
+def validate_error_boundaries(
     item: Mapping[str, Any],
     error_base_by_name: Mapping[str, str],
 ) -> None:
-    raises = _string_list(item.get("raises"))
-    known_errors = _string_list(item.get("known_errors"))
+    """Validate raises and known_errors against declared errors."""
+    raises = string_list(item.get("raises"))
+    known_errors = string_list(item.get("known_errors"))
     error_names = {"UseCaseError", *error_base_by_name}
     for name_value in (*raises, *known_errors):
         if name_value not in error_names:
             raise ManifestError(f"declared error {name_value!r} is not defined in errors")
     for known_error in known_errors:
         if raises and not any(
-            _error_extends(known_error, raised, error_base_by_name) for raised in raises
+            error_extends(known_error, raised, error_base_by_name) for raised in raises
         ):
             raise ManifestError(f"known error {known_error!r} is not covered by raises")
 
 
-def _validate_uses(item: Mapping[str, Any], *, key: str) -> None:
-    for use_key in _string_list(item.get("uses")):
-        if not _valid_key(use_key):
+def validate_uses(item: Mapping[str, Any], *, key: str) -> None:
+    """Validate declared dependency keys."""
+    for use_key in string_list(item.get("uses")):
+        if not valid_key(use_key):
             raise ManifestError(f"invalid uses key {use_key!r}")
         if use_key == key:
             raise ManifestError(f"usecase {key!r} cannot use itself")
@@ -787,10 +817,11 @@ def validate_type_expr(expr: str) -> None:
         parsed = ast.parse(expr, mode="eval")
     except SyntaxError as exc:
         raise ManifestError(f"invalid type expression {expr!r}") from exc
-    _validate_type_ast(parsed.body, expr=expr)
+    validate_type_ast(parsed.body, expr=expr)
 
 
-def _validate_type_ast(node: ast.AST, *, expr: str) -> None:
+def validate_type_ast(node: ast.AST, *, expr: str) -> None:
+    """Validate an AST node for the supported type expression subset."""
     if isinstance(node, ast.Name):
         if not (node.id in _BUILTIN_TYPE_NAMES or node.id.isidentifier()):
             raise ManifestError(f"invalid type name in {expr!r}: {node.id!r}")
@@ -800,61 +831,67 @@ def _validate_type_ast(node: ast.AST, *, expr: str) -> None:
             return
         raise ManifestError(f"invalid literal in {expr!r}")
     if isinstance(node, ast.Subscript):
-        _validate_type_ast(node.value, expr=expr)
-        _validate_type_ast(node.slice, expr=expr)
+        validate_type_ast(node.value, expr=expr)
+        validate_type_ast(node.slice, expr=expr)
         return
     if isinstance(node, ast.Tuple | ast.List):
         for element in node.elts:
-            _validate_type_ast(element, expr=expr)
+            validate_type_ast(element, expr=expr)
         return
     if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
-        _validate_type_ast(node.left, expr=expr)
-        _validate_type_ast(node.right, expr=expr)
+        validate_type_ast(node.left, expr=expr)
+        validate_type_ast(node.right, expr=expr)
         return
     raise ManifestError(f"unsupported type expression syntax in {expr!r}")
 
 
-def _validate_field(field: Mapping[str, Any], *, context: str) -> None:
-    field_name = _required_string(field, "name")
+def validate_field(field: Mapping[str, Any], *, context: str) -> None:
+    """Validate one Manifest model or error field."""
+    field_name = required_string(field, "name")
     if not field_name.isidentifier():
         raise ManifestError(f"{context} field name must be an identifier: {field_name!r}")
-    validate_type_expr(_required_string(field, "type"))
+    validate_type_expr(required_string(field, "type"))
     required = field.get("required", True)
     if not isinstance(required, bool):
         raise ManifestError(f"{context}.{field_name}.required must be a boolean")
 
 
-def _manifest_models(usecase: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+def manifest_models(usecase: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    """Read Manifest model mappings."""
     value = usecase.get("models")
     if not isinstance(value, list) or not value:
         raise ManifestError("usecase.models must be a non-empty list")
-    return [_mapping(item, "model") for item in value]
+    return [required_mapping(item, "model") for item in value]
 
 
-def _manifest_errors(usecase: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+def manifest_errors(usecase: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    """Read Manifest error mappings."""
     value = usecase.get("errors", [])
     if not isinstance(value, list):
         raise ManifestError("usecase.errors must be a list")
-    return [_mapping(item, "error") for item in value]
+    return [required_mapping(item, "error") for item in value]
 
 
-def _manifest_fields(container: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+def manifest_fields(container: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    """Read Manifest field mappings."""
     value = container.get("fields", [])
     if not isinstance(value, list):
         raise ManifestError("fields must be a list")
-    return [_mapping(item, "field") for item in value]
+    return [required_mapping(item, "field") for item in value]
 
 
-def _usecase_items(manifest: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+def usecase_items(manifest: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    """Read Manifest usecase mappings."""
     value = manifest.get("usecases")
     if not isinstance(value, list):
         raise ManifestError("manifest.usecases must be a list")
-    return [_mapping(item, "usecase") for item in value]
+    return [required_mapping(item, "usecase") for item in value]
 
 
-def _render_model_class(model: Mapping[str, Any]) -> list[str]:
-    name = _required_string(model, "name")
-    fields = _manifest_fields(model)
+def render_model_class(model: Mapping[str, Any]) -> list[str]:
+    """Render a Model class from Manifest metadata."""
+    name = required_string(model, "name")
+    fields = manifest_fields(model)
     lines = [f"class {name}(Model):"]
     description = model.get("description")
     if isinstance(description, str) and description:
@@ -865,70 +902,74 @@ def _render_model_class(model: Mapping[str, Any]) -> list[str]:
         return lines
     for field in fields:
         required = bool(field.get("required", True))
-        type_expr = _required_string(field, "type")
+        type_expr = required_string(field, "type")
         if not required and "None" not in type_expr:
             type_expr = f"{type_expr} | None"
         default = "" if required else " = None"
-        lines.append(f"    {_required_string(field, 'name')}: {type_expr}{default}")
+        lines.append(f"    {required_string(field, 'name')}: {type_expr}{default}")
     return lines
 
 
-def _render_error_class(error: Mapping[str, Any]) -> list[str]:
-    name = _required_string(error, "name")
-    base = _string_or_default(error.get("base"), "UseCaseError")
-    code = _required_string(error, "code")
-    fields = _manifest_fields(error)
+def render_error_class(error: Mapping[str, Any]) -> list[str]:
+    """Render a UseCaseError class from Manifest metadata."""
+    name = required_string(error, "name")
+    base = string_or_default(error.get("base"), "UseCaseError")
+    code = required_string(error, "code")
+    fields = manifest_fields(error)
     lines = [f"class {name}({base}):", f'    code: ClassVar[str] = "{code}"']
     if not fields:
         return lines
     lines.append("")
     for field in fields:
-        lines.append(f"    {_required_string(field, 'name')}: {_required_string(field, 'type')}")
+        lines.append(f"    {required_string(field, 'name')}: {required_string(field, 'type')}")
     lines.append("")
     params = ", ".join(
-        f"{_required_string(field, 'name')}: {_required_string(field, 'type')}" for field in fields
+        f"{required_string(field, 'name')}: {required_string(field, 'type')}" for field in fields
     )
     lines.append(f"    def __init__(self, *, {params}) -> None:")
     for field in fields:
-        field_name = _required_string(field, "name")
+        field_name = required_string(field, "name")
         lines.append(f"        self.{field_name} = {field_name}")
     lines.append(f'        super().__init__("{code}")')
     return lines
 
 
-def _collect_type_exprs(
+def collect_type_exprs(
     models: Sequence[Mapping[str, Any]],
     errors: Sequence[Mapping[str, Any]],
 ) -> list[str]:
+    """Collect all field type expressions used by generated code."""
     exprs: list[str] = []
     for container in (*models, *errors):
-        for field in _manifest_fields(container):
-            exprs.append(_required_string(field, "type"))
+        for field in manifest_fields(container):
+            exprs.append(required_string(field, "type"))
     return exprs
 
 
-def _typing_imports(
+def typing_imports(
     type_exprs: Sequence[str],
     errors: Sequence[Mapping[str, Any]],
 ) -> list[str]:
+    """Return typing imports required by generated code."""
     imports = ["Protocol"]
     if errors:
         imports.append("ClassVar")
     if any("Literal[" in expr for expr in type_exprs):
         imports.append("Literal")
-    if any(_type_expr_contains_name(expr, "Any") for expr in type_exprs):
+    if any(type_expr_contains_name(expr, "Any") for expr in type_exprs):
         imports.append("Any")
     return sorted(set(imports))
 
 
-def _usecaseapi_imports(errors: Sequence[Mapping[str, Any]]) -> list[str]:
+def usecaseapi_imports(errors: Sequence[Mapping[str, Any]]) -> list[str]:
+    """Return usecaseapi imports required by generated code."""
     imports = ["Contract", "Model", "UseCase", "UseCaseRef", "define_usecase"]
     if errors:
         imports.insert(3, "UseCaseError")
     return imports
 
 
-def _render_contract_binding(
+def render_contract_binding(
     *,
     protocol_class: str,
     input_name: str,
@@ -944,6 +985,7 @@ def _render_contract_binding(
     description: object,
     tags: Sequence[str],
 ) -> list[str]:
+    """Render protocol and UseCaseRef binding code."""
     lines = [
         f"class {protocol_class}(UseCase[{input_name}, {output_name}], Protocol):",
         f'    """Contract Protocol for {name} v{version}."""',
@@ -959,21 +1001,22 @@ def _render_contract_binding(
         f"        version={version},",
         f"        input={input_name},",
         f"        output={output_name},",
-        f"        raises={_tuple_expr(raises)},",
-        f"        known_errors={_tuple_expr(known_errors)},",
+        f"        raises={tuple_expr(raises)},",
+        f"        known_errors={tuple_expr(known_errors)},",
         f"        stable={stable!r},",
         f"        deprecated={deprecated!r},",
     ]
-    lines.extend(_optional_contract_metadata_lines(superseded_by, description, tags))
+    lines.extend(optional_contract_metadata_lines(superseded_by, description, tags))
     lines.extend(["    ),", ")", ""])
     return lines
 
 
-def _optional_contract_metadata_lines(
+def optional_contract_metadata_lines(
     superseded_by: object,
     description: object,
     tags: Sequence[str],
 ) -> list[str]:
+    """Render optional Contract keyword lines."""
     lines: list[str] = []
     if isinstance(superseded_by, str):
         lines.append(f"        superseded_by={superseded_by!r},")
@@ -984,25 +1027,27 @@ def _optional_contract_metadata_lines(
     return lines
 
 
-def _stdlib_import_lines(type_exprs: Sequence[str]) -> list[str]:
+def stdlib_import_lines(type_exprs: Sequence[str]) -> list[str]:
+    """Render standard-library imports required by type expressions."""
     lines: list[str] = []
-    if any(_type_expr_contains_name(expr, "UUID") for expr in type_exprs):
+    if any(type_expr_contains_name(expr, "UUID") for expr in type_exprs):
         lines.append("from uuid import UUID")
     datetime_names = [
         name
         for name in ("date", "datetime")
-        if any(_type_expr_contains_name(expr, name) for expr in type_exprs)
+        if any(type_expr_contains_name(expr, name) for expr in type_exprs)
     ]
     if datetime_names:
         lines.append("from datetime import " + ", ".join(sorted(set(datetime_names))))
-    if any(_type_expr_contains_name(expr, "Decimal") for expr in type_exprs):
+    if any(type_expr_contains_name(expr, "Decimal") for expr in type_exprs):
         lines.append("from decimal import Decimal")
     if lines:
         lines.append("")
     return lines
 
 
-def _type_expr_contains_name(expr: str, name: str) -> bool:
+def type_expr_contains_name(expr: str, name: str) -> bool:
+    """Return whether a type expression references a name."""
     try:
         parsed = ast.parse(expr, mode="eval")
     except SyntaxError:
@@ -1010,31 +1055,61 @@ def _type_expr_contains_name(expr: str, name: str) -> bool:
     return any(isinstance(node, ast.Name) and node.id == name for node in ast.walk(parsed))
 
 
-def _tuple_expr(names: Sequence[str]) -> str:
+def tuple_expr(names: Sequence[str]) -> str:
+    """Render names as a Python tuple expression."""
     if not names:
         return "()"
     return "(" + ", ".join(names) + ",)"
 
 
-def _default_contract_file(usecase: Mapping[str, Any], *, contracts_root: str) -> str:
-    name = _required_string(usecase, "name")
-    version = _required_int(usecase, "version")
+def default_contract_file(usecase: Mapping[str, Any], *, contracts_root: str) -> str:
+    """Return the default generated contract file path."""
+    name = required_string(usecase, "name")
+    version = required_int(usecase, "version")
     parts = name.split(".")
     return str(Path(contracts_root) / Path(*parts[:-1]) / parts[-1] / f"v{version}.py")
 
 
-def _default_implementation_file(usecase: Mapping[str, Any], *, implementations_root: str) -> str:
-    name = _required_string(usecase, "name")
+def default_implementation_file(usecase: Mapping[str, Any], *, implementations_root: str) -> str:
+    """Return the default generated implementation file path."""
+    name = required_string(usecase, "name")
     parts = name.split(".")
     return str(Path(implementations_root) / Path(*parts[:-1]) / f"{parts[-1]}.py")
 
 
-def _default_implementation_path(name: str) -> str:
+def default_implementation_class(name: str) -> str:
+    """Return the default v1.1 implementation class name for exported source metadata."""
+    return "".join(part.capitalize() for part in name.split(".")[-1].split("_")) + "UseCase"
+
+
+def default_implementation_path(
+    name: str,
+    *,
+    version: int,
+    implementations_root: str,
+    package: str | None,
+) -> str:
+    """Return the default implementation path for exported source metadata."""
     parts = name.split(".")
-    return str(Path("app/usecases") / Path(*parts[:-1]) / f"{parts[-1]}.py")
+    if package is not None and parts[0] == package:
+        package_name = package
+        usecase_parts = parts[1:]
+    else:
+        package_name = parts[0]
+        usecase_parts = parts[1:]
+    usecase_name = parts[-1]
+    return str(
+        Path(implementations_root)
+        / package_name
+        / "usecases"
+        / Path(*usecase_parts)
+        / f"v{version}"
+        / f"{usecase_name}_usecase.py"
+    )
 
 
-def _write_generated_file(path: Path, content: str, *, force: bool, dry_run: bool) -> None:
+def write_generated_file(path: Path, content: str, *, force: bool, dry_run: bool) -> None:
+    """Write a generated file unless dry-run or protected by force."""
     if path.exists() and not force:
         raise FileExistsError(f"{path} already exists; pass force=True to overwrite")
     if dry_run:
@@ -1043,7 +1118,8 @@ def _write_generated_file(path: Path, content: str, *, force: bool, dry_run: boo
     path.write_text(content)
 
 
-def _ensure_init_files(directory: Path, *, stop_at: Path) -> None:
+def ensure_init_files(directory: Path, *, stop_at: Path) -> None:
+    """Create package __init__.py files up to a boundary."""
     current = directory
     stop = stop_at.resolve()
     while True:
@@ -1055,7 +1131,8 @@ def _ensure_init_files(directory: Path, *, stop_at: Path) -> None:
         current = current.parent
 
 
-def _source_file(value: Any) -> str | None:
+def source_file(value: Any) -> str | None:
+    """Return a source file path for an inspected object when available."""
     try:
         file_name = inspect.getsourcefile(value)
     except TypeError:
@@ -1069,7 +1146,8 @@ def _source_file(value: Any) -> str | None:
         return path.as_posix()
 
 
-def _trim_to_root(file_path: str, root: str) -> str:
+def trim_to_root(file_path: str, root: str) -> str:
+    """Trim a source path so it starts at the configured root."""
     path_parts = Path(file_path).parts
     root_parts = Path(root).parts
     if not root_parts:
@@ -1080,7 +1158,8 @@ def _trim_to_root(file_path: str, root: str) -> str:
     return file_path
 
 
-def _qualname(value: object) -> str:
+def qualname(value: object) -> str:
+    """Return a stable module-qualified name when available."""
     module = getattr(value, "__module__", None)
     qualname = getattr(value, "__qualname__", None)
     if isinstance(module, str) and isinstance(qualname, str):
@@ -1088,7 +1167,8 @@ def _qualname(value: object) -> str:
     return repr(value)
 
 
-def _find_ref_symbol(ref: UseCaseRef[Any, Any]) -> str | None:
+def find_ref_symbol(ref: UseCaseRef[Any, Any]) -> str | None:
+    """Find the symbol name that exports a UseCaseRef."""
     module = sys.modules.get(ref.protocol.__module__)
     if module is None:
         return None
@@ -1098,31 +1178,37 @@ def _find_ref_symbol(ref: UseCaseRef[Any, Any]) -> str | None:
     return None
 
 
-def _default_ref_symbol(name: str) -> str:
+def default_ref_symbol(name: str) -> str:
+    """Return the default constant name for a contract."""
     return name.split(".")[-1].upper()
 
 
-def _class_name(error_type: type[UseCaseError]) -> str:
+def class_name(error_type: type[UseCaseError]) -> str:
+    """Return the class name for an error type."""
     return error_type.__name__
 
 
-def _valid_contract_name(name: str) -> bool:
+def valid_contract_name(name: str) -> bool:
+    """Return whether a contract name is valid."""
     parts = name.split(".")
     return len(parts) >= 2 and all(part.isidentifier() and part.islower() for part in parts)
 
 
-def _valid_key(key: str) -> bool:
+def valid_key(key: str) -> bool:
+    """Return whether a usecase key is valid."""
     if "@v" not in key:
         return False
     name, _, version = key.partition("@v")
-    return _valid_contract_name(name) and version.isdigit() and int(version) >= 1
+    return valid_contract_name(name) and version.isdigit() and int(version) >= 1
 
 
-def _valid_module_path(value: str) -> bool:
+def valid_module_path(value: str) -> bool:
+    """Return whether a dotted Python module path is valid."""
     return bool(value) and all(part.isidentifier() for part in value.split("."))
 
 
-def _error_extends(error_name: str, base_name: str, base_by_name: Mapping[str, str]) -> bool:
+def error_extends(error_name: str, base_name: str, base_by_name: Mapping[str, str]) -> bool:
+    """Return whether one error extends another by Manifest metadata."""
     current = error_name
     while current != "UseCaseError":
         if current == base_name:
@@ -1131,25 +1217,29 @@ def _error_extends(error_name: str, base_name: str, base_by_name: Mapping[str, s
     return base_name == "UseCaseError"
 
 
-def _required_string(mapping: Mapping[str, Any], key: str) -> str:
+def required_string(mapping: Mapping[str, Any], key: str) -> str:
+    """Read a required non-empty string field."""
     value = mapping.get(key)
     if not isinstance(value, str) or not value:
         raise ManifestError(f"{key} must be a non-empty string")
     return value
 
 
-def _required_int(mapping: Mapping[str, Any], key: str) -> int:
+def required_int(mapping: Mapping[str, Any], key: str) -> int:
+    """Read a required integer field."""
     value = mapping.get(key)
     if not isinstance(value, int):
         raise ManifestError(f"{key} must be an integer")
     return value
 
 
-def _string_or_default(value: object, default: str) -> str:
+def string_or_default(value: object, default: str) -> str:
+    """Read a non-empty string or return a default."""
     return value if isinstance(value, str) and value else default
 
 
-def _string_list(value: object) -> list[str]:
+def string_list(value: object) -> list[str]:
+    """Read a list of strings, rejecting malformed values."""
     if value is None:
         return []
     if not isinstance(value, list):
@@ -1162,17 +1252,19 @@ def _string_list(value: object) -> list[str]:
     return result
 
 
-def _mapping(value: object, name: str) -> Mapping[str, Any]:
+def required_mapping(value: object, name: str) -> Mapping[str, Any]:
+    """Read a required mapping value."""
     if not isinstance(value, Mapping):
         raise ManifestError(f"{name} must be a mapping")
     return value
 
 
-def _without_none(value: dict[str, Any]) -> dict[str, Any]:
+def without_none(value: dict[str, Any]) -> dict[str, Any]:
+    """Return a copy without None values, including nested mappings."""
     result: dict[str, Any] = {}
     for key, item in value.items():
         if isinstance(item, dict):
-            nested = _without_none(item)
+            nested = without_none(item)
             if nested:
                 result[key] = nested
         elif item is not None:
@@ -1180,89 +1272,97 @@ def _without_none(value: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
-def _usecase_key(usecase: Mapping[str, Any]) -> str:
-    return _string_or_default(
+def usecase_key(usecase: Mapping[str, Any]) -> str:
+    """Return the canonical key for a Manifest usecase."""
+    return string_or_default(
         usecase.get("key"),
-        f"{_required_string(usecase, 'name')}@v{_required_int(usecase, 'version')}",
+        f"{required_string(usecase, 'name')}@v{required_int(usecase, 'version')}",
     )
 
 
-def _node_id(key: str) -> str:
+def node_id(key: str) -> str:
+    """Return a Mermaid-safe node identifier."""
     return "uc_" + "".join(character if character.isalnum() else "_" for character in key)
 
 
-def _index_usecases(manifest: Mapping[str, Any]) -> dict[str, Mapping[str, Any]]:
-    return {_usecase_key(item): item for item in _usecase_items(manifest)}
+def index_usecases(manifest: Mapping[str, Any]) -> dict[str, Mapping[str, Any]]:
+    """Index Manifest usecases by key."""
+    return {usecase_key(item): item for item in usecase_items(manifest)}
 
 
-def _model_map(usecase: Mapping[str, Any]) -> dict[str, list[dict[str, Any]]]:
+def model_map(usecase: Mapping[str, Any]) -> dict[str, list[dict[str, Any]]]:
+    """Return comparable model field metadata keyed by model name."""
     return {
-        _required_string(model, "name"): [
+        required_string(model, "name"): [
             dict(field)
             for field in sorted(
-                _manifest_fields(model), key=lambda field: _required_string(field, "name")
+                manifest_fields(model), key=lambda field: required_string(field, "name")
             )
         ]
-        for model in _manifest_models(usecase)
+        for model in manifest_models(usecase)
     }
 
 
-def _error_map(usecase: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
+def error_map(usecase: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
+    """Return comparable error metadata keyed by error name."""
     return {
-        _required_string(error, "name"): {
-            "base": _string_or_default(error.get("base"), "UseCaseError"),
-            "code": _required_string(error, "code"),
+        required_string(error, "name"): {
+            "base": string_or_default(error.get("base"), "UseCaseError"),
+            "code": required_string(error, "code"),
             "fields": [
                 dict(field)
                 for field in sorted(
-                    _manifest_fields(error), key=lambda field: _required_string(field, "name")
+                    manifest_fields(error), key=lambda field: required_string(field, "name")
                 )
             ],
         }
-        for error in _manifest_errors(usecase)
+        for error in manifest_errors(usecase)
     }
 
 
-def _model_field_changes(old_case: Mapping[str, Any], new_case: Mapping[str, Any]) -> bool:
-    old_models = _model_map(old_case)
-    new_models = _model_map(new_case)
+def model_field_changes(old_case: Mapping[str, Any], new_case: Mapping[str, Any]) -> bool:
+    """Return whether model names or fields changed."""
+    old_models = model_map(old_case)
+    new_models = model_map(new_case)
     for name, old_fields in old_models.items():
         if name in {
-            _required_string(old_case, "input"),
-            _required_string(old_case, "output"),
+            required_string(old_case, "input"),
+            required_string(old_case, "output"),
         } and (name not in new_models or new_models[name] != old_fields):
             return True
     return False
 
 
-def _semantic_manifest(manifest: Mapping[str, Any]) -> dict[str, Any]:
+def semantic_manifest(manifest: Mapping[str, Any]) -> dict[str, Any]:
+    """Return the semantic subset used for sync comparison."""
     validate_manifest(manifest)
     return {
         "kind": MANIFEST_KIND,
         "usecases": [
             {
-                "name": _required_string(item, "name"),
-                "version": _required_int(item, "version"),
-                "key": _usecase_key(item),
+                "name": required_string(item, "name"),
+                "version": required_int(item, "version"),
+                "key": usecase_key(item),
                 "description": item.get("description"),
                 "stable": item.get("stable", True),
                 "deprecated": item.get("deprecated", False),
                 "superseded_by": item.get("superseded_by"),
-                "tags": _string_list(item.get("tags")),
-                "input": _required_string(item, "input"),
-                "output": _required_string(item, "output"),
-                "models": _model_map(item),
-                "errors": _error_map(item),
-                "raises": _string_list(item.get("raises")),
-                "known_errors": _string_list(item.get("known_errors")),
-                "uses": _string_list(item.get("uses")),
+                "tags": string_list(item.get("tags")),
+                "input": required_string(item, "input"),
+                "output": required_string(item, "output"),
+                "models": model_map(item),
+                "errors": error_map(item),
+                "raises": string_list(item.get("raises")),
+                "known_errors": string_list(item.get("known_errors")),
+                "uses": string_list(item.get("uses")),
             }
-            for item in _usecase_items(manifest)
+            for item in usecase_items(manifest)
         ],
     }
 
 
-def _project_name(manifest: Mapping[str, Any]) -> str | None:
+def project_name(manifest: Mapping[str, Any]) -> str | None:
+    """Read Manifest project name when present."""
     metadata = manifest.get("metadata")
     name = metadata.get("name") if isinstance(metadata, Mapping) else None
     if isinstance(name, str):
@@ -1270,7 +1370,8 @@ def _project_name(manifest: Mapping[str, Any]) -> str | None:
     return None
 
 
-def _package_name(manifest: Mapping[str, Any]) -> str | None:
+def package_name(manifest: Mapping[str, Any]) -> str | None:
+    """Read Manifest package name when present."""
     layout = manifest.get("layout")
     package = layout.get("package") if isinstance(layout, Mapping) else None
     if isinstance(package, str):

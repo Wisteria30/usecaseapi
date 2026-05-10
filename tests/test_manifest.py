@@ -201,15 +201,25 @@ def test_manifest_export_is_yaml_and_validates(tmp_path: Path) -> None:
     api = UseCaseAPI[None]()
     api.bind(EXAMPLE, lambda caller: ExampleImpl())
 
-    manifest = manifest_from_api(api, project="demo", package="app")
+    manifest = manifest_from_api(
+        api,
+        project="demo",
+        package="example",
+        implementations_root="src",
+    )
     path = tmp_path / "usecaseapi.ucase.yaml"
     dump_manifest(manifest, path)
     loaded = load_manifest(path)
 
     assert loaded["kind"] == MANIFEST_KIND
     assert loaded["metadata"]["name"] == "demo"
-    assert loaded["layout"]["package"] == "app"
+    assert loaded["layout"]["package"] == "example"
+    assert loaded["layout"]["implementations_root"] == "src"
     assert loaded["usecases"][0]["key"] == "example.run@v1"
+    assert loaded["usecases"][0]["source"]["implementation_class"] == "RunUseCase"
+    assert loaded["usecases"][0]["source"]["implementation_file"] == (
+        "src/example/usecases/run/v1/run_usecase.py"
+    )
     assert loaded["usecases"][0]["raises"] == ["ExampleError"]
     assert loaded["usecases"][0]["known_errors"] == ["ExampleRejected"]
 
@@ -650,13 +660,21 @@ def test_manifest_cli_uses_yaml_for_export_validate_scaffold_docs_graph_and_diff
                 "basic",
                 "--package",
                 "commerce",
+                "--contracts-root",
+                "src/commerce",
+                "--implementations-root",
+                "src",
                 "--output",
                 str(manifest_path),
             ]
         )
         == 0
     )
-    assert load_manifest(manifest_path)["kind"] == MANIFEST_KIND
+    manifest = load_manifest(manifest_path)
+    assert manifest["kind"] == MANIFEST_KIND
+    assert manifest["usecases"][0]["source"]["implementation_file"] == (
+        "src/commerce/usecases/check_availability/v1/check_availability_usecase.py"
+    )
 
     assert main(["manifest", "validate", str(manifest_path)]) == 0
     assert "UseCaseAPI manifest validation passed" in capsys.readouterr().out
@@ -668,7 +686,7 @@ def test_manifest_cli_uses_yaml_for_export_validate_scaffold_docs_graph_and_diff
     assert main(["manifest", "scaffold", str(manifest_path), "--root", str(generated_root)]) == 0
     assert (
         generated_root
-        / "examples/basic/src/commerce/usecases/place_order/v1/place_order_contract.py"
+        / "src/commerce/usecases/place_order/v1/place_order_contract.py"
     ).exists()
 
     assert main(["docs", str(manifest_path), "--output", str(docs_path)]) == 0
@@ -678,6 +696,39 @@ def test_manifest_cli_uses_yaml_for_export_validate_scaffold_docs_graph_and_diff
     assert "commerce.place_order@v1" in graph_path.read_text()
 
     assert main(["diff", str(manifest_path), str(manifest_path)]) == 0
+
+
+def test_basic_example_manifest_is_generated_from_composition(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The committed basic example Manifest matches CLI export output."""
+    monkeypatch.syspath_prepend("examples/basic/src")
+    exported_path = tmp_path / "usecaseapi.ucase.yaml"
+    committed_path = Path("examples/basic/usecaseapi.ucase.yaml")
+
+    assert (
+        main(
+            [
+                "manifest",
+                "export",
+                "composition:usecases",
+                "--project",
+                "basic",
+                "--package",
+                "commerce",
+                "--contracts-root",
+                "src/commerce",
+                "--implementations-root",
+                "src",
+                "--output",
+                str(exported_path),
+            ]
+        )
+        == 0
+    )
+
+    assert load_manifest(committed_path) == load_manifest(exported_path)
 
     assert main(["manifest", "export", "composition:usecases"]) == 0
     stdout_manifest = yaml.safe_load(capsys.readouterr().out)
@@ -748,7 +799,7 @@ def test_manifest_cli_prints_skipped_scaffold_files(
     assert f"skipped: {implementation}" in capsys.readouterr().out
 
 
-def test_manifest_private_helpers_cover_edge_branches(
+def test_manifest_named_helpers_cover_edge_branches(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -778,7 +829,7 @@ def test_manifest_private_helpers_cover_edge_branches(
         return original_get_type_hints(value)
 
     monkeypatch.setattr(manifest_module, "get_type_hints", failing_class_hints)
-    assert manifest_module._error_fields(AnnotatedError) == [
+    assert manifest_module.error_fields(AnnotatedError) == [
         {"name": "detail", "type": "str", "required": True}
     ]
 
@@ -790,25 +841,25 @@ def test_manifest_private_helpers_cover_edge_branches(
         return original_signature(value)
 
     monkeypatch.setattr("usecaseapi.manifest.inspect.signature", failing_signature)
-    assert manifest_module._error_fields(VariadicError) == []
+    assert manifest_module.error_fields(VariadicError) == []
     monkeypatch.setattr("usecaseapi.manifest.inspect.signature", original_signature)
-    assert manifest_module._error_fields(VariadicError) == []
-    assert manifest_module._error_fields(UnannotatedError) == []
+    assert manifest_module.error_fields(VariadicError) == []
+    assert manifest_module.error_fields(UnannotatedError) == []
 
-    assert manifest_module._format_origin_annotation(tuple, tuple[()]) == "<class 'tuple'>"
-    assert manifest_module._format_collection_annotation(list, ()) == "<class 'list'>"
-    assert manifest_module._format_origin_annotation(object, object()).startswith("<object object")
-    assert manifest_module._type_expr_contains_name("[", "Any") is False
+    assert manifest_module.format_origin_annotation(tuple, tuple[()]) == "<class 'tuple'>"
+    assert manifest_module.format_collection_annotation(list, ()) == "<class 'list'>"
+    assert manifest_module.format_origin_annotation(object, object()).startswith("<object object")
+    assert manifest_module.type_expr_contains_name("[", "Any") is False
 
     bad_name = ast.Name(id="bad-name")
     with pytest.raises(ManifestError, match="invalid type name"):
-        manifest_module._validate_type_ast(bad_name, expr="bad-name")
+        manifest_module.validate_type_ast(bad_name, expr="bad-name")
     with pytest.raises(ManifestError, match="invalid type expression"):
         manifest_module.validate_type_expr("[")
     with pytest.raises(ManifestError, match="invalid literal"):
         manifest_module.validate_type_expr("b'bytes'")
     with pytest.raises(ManifestError, match="manifest.usecases"):
-        manifest_module._usecase_items({"usecases": {}})
+        manifest_module.usecase_items({"usecases": {}})
 
     described = minimal_manifest()["usecases"][0]
     described["models"][0]["description"] = "Described model."
@@ -819,42 +870,42 @@ def test_manifest_private_helpers_cover_edge_branches(
     assert "value: str | None = None" in contract
     assert "tags=('example',)" in contract
 
-    assert manifest_module._trim_to_root("app/contracts/example/run/v1.py", "") == (
+    assert manifest_module.trim_to_root("app/contracts/example/run/v1.py", "") == (
         "app/contracts/example/run/v1.py"
     )
-    assert manifest_module._trim_to_root("/tmp/project/app/contracts/example/run/v1.py", "app") == (
+    assert manifest_module.trim_to_root("/tmp/project/app/contracts/example/run/v1.py", "app") == (
         "app/contracts/example/run/v1.py"
     )
-    assert manifest_module._qualname(object()).startswith("<object object")
-    assert manifest_module._default_ref_symbol("example.run") == "RUN"
+    assert manifest_module.qualname(object()).startswith("<object object")
+    assert manifest_module.default_ref_symbol("example.run") == "RUN"
     with pytest.raises(ManifestError, match="must be a non-empty string"):
-        manifest_module._required_string({"x": ""}, "x")
+        manifest_module.required_string({"x": ""}, "x")
     with pytest.raises(ManifestError, match="must be a mapping"):
-        manifest_module._mapping(None, "value")
+        manifest_module.required_mapping(None, "value")
 
     class Args:
         pass
 
-    assert manifest_module._source_file(1) is None
+    assert manifest_module.source_file(1) is None
     monkeypatch.setattr("usecaseapi.manifest.inspect.getsourcefile", lambda value: None)
-    assert manifest_module._source_file(Args) is None
+    assert manifest_module.source_file(Args) is None
     monkeypatch.setattr(
         "usecaseapi.manifest.inspect.getsourcefile",
         lambda value: str(tmp_path / "outside.py"),
     )
-    assert manifest_module._source_file(Args) == (tmp_path / "outside.py").as_posix()
+    assert manifest_module.source_file(Args) == (tmp_path / "outside.py").as_posix()
 
     missing_module_ref = type(
         "Ref",
         (),
         {"protocol": type("ProtocolType", (), {"__module__": "missing.module"})},
     )()
-    assert manifest_module._find_ref_symbol(missing_module_ref) is None
+    assert manifest_module.find_ref_symbol(missing_module_ref) is None
     local_ref = define_usecase(
         type("LocalProtocol", (), {"__module__": __name__}),
         Contract(name="local.run", version=1, input=Input, output=Output),
     )
-    assert manifest_module._find_ref_symbol(local_ref) is None
+    assert manifest_module.find_ref_symbol(local_ref) is None
 
-    assert manifest_module._semantic_manifest(minimal_manifest())["kind"] == MANIFEST_KIND
-    assert manifest_module._project_name({}) is None
+    assert manifest_module.semantic_manifest(minimal_manifest())["kind"] == MANIFEST_KIND
+    assert manifest_module.project_name({}) is None
