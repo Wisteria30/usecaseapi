@@ -6,7 +6,7 @@ This repository is prepared for PyPI publishing through GitHub Actions and PyPI 
 
 - Package metadata lives in `pyproject.toml`.
 - The package builds with Hatchling through `uv build`.
-- Runtime dependencies are limited to Pydantic v2.
+- Runtime dependencies are Pydantic v2 and Typer.
 - `py.typed` is included in the wheel for typed consumers.
 - `exclude-newer = "P7D"` is configured for uv dependency resolution.
 - `trusted-publishing = "always"` is configured so release publishing fails if OIDC publishing is unavailable.

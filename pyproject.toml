@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "usecaseapi"
-version = "1.0.0"
+version = "1.1.0"
 description = "FastAPI-style contracts for Python application use cases."
 readme = "README.md"
 license = "MIT"
@@ -39,6 +39,7 @@ classifiers = [
 ]
 dependencies = [
   "pydantic>=2.12.4,<3",
+  "typer>=0.25.1",
 ]
 
 [project.optional-dependencies]
@@ -109,7 +110,7 @@ source = ["usecaseapi"]
 
 [tool.mypy]
 python_version = "3.13"
-mypy_path = ["src", "examples/basic"]
+mypy_path = ["src", "examples/basic/src"]
 files = ["src", "tests", "examples/basic", "scripts"]
 
 # importは追う

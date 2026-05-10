@@ -119,6 +119,7 @@ def test_undeclared_domain_error_is_wrapped_as_contract_violation() -> None:
 
 def test_strict_declared_uses_guard() -> None:
     """Strict dependency mode rejects undeclared nested usecase calls."""
+
     class Parent(UseCase[Input, Output], Protocol):
         async def __call__(self, input: Input, /) -> Output: ...
 

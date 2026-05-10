@@ -60,21 +60,29 @@ def _verify_cli_scaffold() -> None:
             [
                 "usecaseapi",
                 "scaffold",
-                "billing.capture_payment",
-                "--contracts-root",
-                str(root / "app" / "contracts"),
-                "--implementations-root",
-                str(root / "app" / "usecases"),
-                "--tests-root",
-                str(root / "tests"),
+                "billing",
+                "capture_payment",
             ],
+            cwd=root,
             check=True,
             capture_output=True,
             text=True,
         )
-        assert (root / "app" / "contracts" / "billing" / "capture_payment" / "v1.py").exists()
-        assert (root / "app" / "usecases" / "billing" / "capture_payment.py").exists()
-        assert (root / "tests" / "test_billing_capture_payment_v1.py").exists()
+        assert (
+            root / "billing" / "usecases" / "capture_payment" / "v1" / "capture_payment_contract.py"
+        ).exists()
+        assert (
+            root / "billing" / "usecases" / "capture_payment" / "v1" / "capture_payment_usecase.py"
+        ).exists()
+        assert (
+            root
+            / "tests"
+            / "billing"
+            / "usecases"
+            / "capture_payment"
+            / "v1"
+            / "test_capture_payment.py"
+        ).exists()
 
 
 def main() -> int:

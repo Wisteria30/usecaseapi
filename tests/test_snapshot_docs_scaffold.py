@@ -7,6 +7,8 @@ import json
 from pathlib import Path
 from typing import Protocol
 
+import pytest
+
 from usecaseapi import Contract, Model, UseCase, UseCaseAPI, UseCaseRef, define_usecase
 from usecaseapi.docs import render_markdown, render_mermaid
 from usecaseapi.scaffold import ScaffoldOptions, scaffold_usecase
@@ -75,101 +77,125 @@ def test_snapshot_diff_detects_schema_change() -> None:
     assert diff.breaking == ("changed output schema for example.run@v1",)
 
 
-def test_scaffold_creates_versioned_contract_and_implementation(tmp_path: Path) -> None:
+def test_scaffold_creates_versioned_contract_and_implementation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Scaffold creates a versioned contract, implementation, and test file."""
+    monkeypatch.chdir(tmp_path)
     result = scaffold_usecase(
         ScaffoldOptions(
-            name="orders.place_order",
+            output_root=Path("src"),
+            name="commerce.place_order",
             version=2,
-            contracts_root=tmp_path / "app" / "contracts",
-            implementations_root=tmp_path / "app" / "usecases",
-            tests_root=tmp_path / "tests",
             force=False,
         )
     )
 
-    files = {file_path.relative_to(tmp_path).as_posix() for file_path in result.files}
-    assert "app/contracts/orders/place_order/v2.py" in files
-    assert "app/usecases/orders/place_order.py" in files
-    assert "tests/test_orders_place_order_v2.py" in files
+    files = {file_path.as_posix() for file_path in result.files}
+    assert "src/commerce/usecases/place_order/v2/place_order_contract.py" in files
+    assert "src/commerce/usecases/place_order/v2/place_order_usecase.py" in files
+    assert "tests/commerce/usecases/place_order/v2/test_place_order.py" in files
 
-    contract_text = (tmp_path / "app/contracts/orders/place_order/v2.py").read_text()
-    assert "PLACE_ORDER" in contract_text
+    contract_text = (
+        tmp_path / "src/commerce/usecases/place_order/v2/place_order_contract.py"
+    ).read_text()
+    assert "PLACE_ORDER_USECASE" in contract_text
+    assert "class PlaceOrderUseCaseInput(Model):" in contract_text
+    assert "class PlaceOrderUseCaseOutput(Model):" in contract_text
+    assert "UseCase[PlaceOrderUseCaseInput, PlaceOrderUseCaseOutput]," in contract_text
+    assert "PLACE_ORDER_USECASE: UseCaseRef[" in contract_text
+    assert "    PlaceOrderUseCaseInput," in contract_text
+    assert "    PlaceOrderUseCaseOutput," in contract_text
     assert "version=2" in contract_text
+    usecase_text = (
+        tmp_path / "src/commerce/usecases/place_order/v2/place_order_usecase.py"
+    ).read_text()
+    assert "class PlaceOrderUseCase" in usecase_text
+    assert "from .place_order_contract import (" in usecase_text
+    assert "    PlaceOrderUseCaseInput," in usecase_text
+    assert "    PlaceOrderUseCaseOutput," in usecase_text
+    assert "async def __call__(" in usecase_text
+    assert "        input: PlaceOrderUseCaseInput," in usecase_text
+    assert "    ) -> PlaceOrderUseCaseOutput:" in usecase_text
+    assert "dataclass" not in usecase_text
 
 
-def test_scaffold_next_version_uses_highest_existing_major(tmp_path: Path) -> None:
-    """Scaffold chooses the next major version after existing version files."""
-    contracts_root = tmp_path / "app" / "contracts"
-    existing_dir = contracts_root / "orders" / "place_order"
-    existing_dir.mkdir(parents=True)
-    (existing_dir / "v1.py").write_text("# existing\n")
-    (existing_dir / "v3.py").write_text("# existing\n")
-
-    result = scaffold_usecase(
-        ScaffoldOptions(
-            name="orders.place_order",
-            version=None,
-            contracts_root=contracts_root,
-            implementations_root=tmp_path / "app" / "usecases",
-            tests_root=tmp_path / "tests",
-        )
-    )
-
-    files = {file_path.relative_to(tmp_path).as_posix() for file_path in result.files}
-    assert "app/contracts/orders/place_order/v4.py" in files
-    assert "tests/test_orders_place_order_v4.py" in files
-
-
-def test_scaffold_auto_next_version(tmp_path: Path) -> None:
-    """Scaffold automatically increments versions and skips existing implementations."""
-    first = scaffold_usecase(
-        ScaffoldOptions(
-            name="orders.refund_order",
-            version=1,
-            contracts_root=tmp_path / "app" / "contracts",
-            implementations_root=tmp_path / "app" / "usecases",
-            tests_root=tmp_path / "tests",
-        )
-    )
-    second = scaffold_usecase(
-        ScaffoldOptions(
-            name="orders.refund_order",
-            contracts_root=tmp_path / "app" / "contracts",
-            implementations_root=tmp_path / "app" / "usecases",
-            tests_root=tmp_path / "tests",
-        )
-    )
-
-    assert first.version == 1
-    assert second.version == 2
-    assert (tmp_path / "app/contracts/orders/refund_order/v2.py").exists()
-    assert tmp_path / "app/usecases/orders/refund_order.py" in second.skipped
-
-
-def test_scaffold_from_version_copies_previous_contract(tmp_path: Path) -> None:
-    """Scaffold can copy a previous contract version and update metadata."""
+def test_scaffold_next_version_uses_highest_existing_major(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Scaffold --next chooses the next major version after existing version files."""
+    monkeypatch.chdir(tmp_path)
     scaffold_usecase(
         ScaffoldOptions(
-            name="orders.cancel_order",
-            version=1,
-            contracts_root=tmp_path / "app" / "contracts",
-            implementations_root=tmp_path / "app" / "usecases",
-            tests_root=tmp_path / "tests",
+            output_root=Path("src"),
+            name="commerce.place_order",
+            version=3,
         )
     )
 
     result = scaffold_usecase(
         ScaffoldOptions(
-            name="orders.cancel_order",
-            from_version=1,
-            contracts_root=tmp_path / "app" / "contracts",
-            implementations_root=tmp_path / "app" / "usecases",
-            tests_root=tmp_path / "tests",
+            output_root=Path("src"),
+            name="commerce.place_order",
+            next=True,
         )
     )
 
-    copied_contract = tmp_path / "app/contracts/orders/cancel_order/v2.py"
+    files = {file_path.as_posix() for file_path in result.files}
+    assert "src/commerce/usecases/place_order/v4/place_order_contract.py" in files
+    assert "tests/commerce/usecases/place_order/v4/test_place_order.py" in files
+
+
+def test_scaffold_without_version_creates_v1_only(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Scaffold without version creates v1 and does not automatically increment."""
+    monkeypatch.chdir(tmp_path)
+    first = scaffold_usecase(
+        ScaffoldOptions(
+            output_root=Path("src"),
+            name="commerce.refund_order",
+        )
+    )
+    with pytest.raises(FileExistsError):
+        scaffold_usecase(
+            ScaffoldOptions(
+                output_root=Path("src"),
+                name="commerce.refund_order",
+            )
+        )
+
+    assert first.version == 1
+    assert (tmp_path / "src/commerce/usecases/refund_order/v1/refund_order_contract.py").exists()
+    assert not (tmp_path / "src/commerce/usecases/refund_order/v2").exists()
+
+
+def test_scaffold_next_copies_latest_contract(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Scaffold --next copies the latest contract version and updates metadata."""
+    monkeypatch.chdir(tmp_path)
+    scaffold_usecase(
+        ScaffoldOptions(
+            output_root=Path("src"),
+            name="commerce.cancel_order",
+            version=1,
+        )
+    )
+
+    result = scaffold_usecase(
+        ScaffoldOptions(
+            output_root=Path("src"),
+            name="commerce.cancel_order",
+            next=True,
+        )
+    )
+
+    copied_contract = tmp_path / "src/commerce/usecases/cancel_order/v2/cancel_order_contract.py"
     assert result.version == 2
     assert copied_contract.exists()
     assert "version=2" in copied_contract.read_text()

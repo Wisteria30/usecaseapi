@@ -43,7 +43,7 @@ It is designed for applications with many internal use case nodes: workflow-like
 - **Same-process calls**: call implementations directly, with no JSON serialization in the call path.
 - **Explicit bindings**: connect a contract token to an implementation factory in one place.
 - **Declared dependencies**: expose and validate which use cases can call which other use cases.
-- **Versioned identity**: identify contracts as stable names such as `orders.place_order@v1`.
+- **Versioned identity**: identify contracts as stable names such as `commerce.place_order@v1`.
 - **Contract artifacts**: generate snapshots, conservative diffs, Markdown docs, and Mermaid graphs.
 - **CLI scaffolding**: create a contract, implementation, and test layout from one command.
 - **Typed distribution**: ships `py.typed` for downstream type checkers.
@@ -66,7 +66,7 @@ uv add usecaseapi
 ### Create a contract
 
 ```python
-# src/myapp/usecases/orders/place_order/v1/place_order_contract.py
+# src/commerce/usecases/place_order/v1/place_order_contract.py
 from __future__ import annotations
 
 from typing import ClassVar, Protocol
@@ -74,32 +74,32 @@ from typing import ClassVar, Protocol
 from usecaseapi import Contract, Model, UseCase, UseCaseError, UseCaseRef, define_usecase
 
 
-class Input(Model):
+class PlaceOrderUseCaseInput(Model):
     user_id: str
     sku_id: str
     quantity: int
 
 
-class Output(Model):
+class PlaceOrderUseCaseOutput(Model):
     order_id: str
 
 
 class PlaceOrderError(UseCaseError):
-    code: ClassVar[str] = "orders.place_order"
+    code: ClassVar[str] = "commerce.place_order"
 
 
-class PlaceOrder(UseCase[Input, Output], Protocol):
-    async def __call__(self, input: Input, /) -> Output:
+class PlaceOrder(UseCase[PlaceOrderUseCaseInput, PlaceOrderUseCaseOutput], Protocol):
+    async def __call__(self, input: PlaceOrderUseCaseInput, /) -> PlaceOrderUseCaseOutput:
         ...
 
 
-PLACE_ORDER: UseCaseRef[Input, Output] = define_usecase(
+PLACE_ORDER_USECASE: UseCaseRef[PlaceOrderUseCaseInput, PlaceOrderUseCaseOutput] = define_usecase(
     PlaceOrder,
     Contract(
-        name="orders.place_order",
+        name="commerce.place_order",
         version=1,
-        input=Input,
-        output=Output,
+        input=PlaceOrderUseCaseInput,
+        output=PlaceOrderUseCaseOutput,
         raises=(PlaceOrderError,),
     ),
 )
@@ -108,19 +108,24 @@ PLACE_ORDER: UseCaseRef[Input, Output] = define_usecase(
 ### Implement it
 
 ```python
-# src/myapp/usecases/orders/place_order/v1/place_order_usecase.py
-from myapp.usecases.orders.place_order.v1.place_order_contract import Input, Output, PlaceOrder
+# src/commerce/usecases/place_order/v1/place_order_usecase.py
+from commerce.usecases.place_order.v1.place_order_contract import (
+    PlaceOrderUseCaseInput,
+    PlaceOrderUseCaseOutput,
+)
 
 
 class PlaceOrderUseCase:
-    async def __call__(self, input: Input, /) -> Output:
-        return Output(order_id="ord_123")
-
-
-_impl: PlaceOrder = PlaceOrderUseCase()
+    async def __call__(
+        self,
+        input: PlaceOrderUseCaseInput,
+        /,
+    ) -> PlaceOrderUseCaseOutput:
+        return PlaceOrderUseCaseOutput(order_id="ord_123")
 ```
 
-The `_impl: PlaceOrder = PlaceOrderUseCase()` assignment is intentionally ordinary Python. It lets mypy and pyright verify that the implementation structurally conforms to the public contract.
+The implementation class is ordinary Python. Instantiate it in your composition root
+or in tests with the dependencies that project actually uses.
 
 ### Bind and call it
 
@@ -129,8 +134,11 @@ from dataclasses import dataclass
 
 from usecaseapi import UseCaseAPI
 
-from myapp.usecases.orders.place_order.v1.place_order_contract import Input, PLACE_ORDER
-from myapp.usecases.orders.place_order.v1.place_order_usecase import PlaceOrderUseCase
+from commerce.usecases.place_order.v1.place_order_contract import (
+    PLACE_ORDER_USECASE,
+    PlaceOrderUseCaseInput,
+)
+from commerce.usecases.place_order.v1.place_order_usecase import PlaceOrderUseCase
 
 
 @dataclass(frozen=True)
@@ -139,34 +147,37 @@ class AppContext:
 
 
 usecases = UseCaseAPI[AppContext]()
-usecases.bind(PLACE_ORDER, lambda caller: PlaceOrderUseCase())
+usecases.bind(PLACE_ORDER_USECASE, lambda caller: PlaceOrderUseCase())
 
 caller = usecases.caller(AppContext(tenant_id="tenant_a"))
-output = await caller.call(PLACE_ORDER, Input(user_id="u1", sku_id="s1", quantity=1))
+output = await caller.call(
+    PLACE_ORDER_USECASE,
+    PlaceOrderUseCaseInput(user_id="u1", sku_id="s1", quantity=1),
+)
 ```
 
 The call is same-process and direct. UseCaseAPI does not serialize the input or output.
 
 ## CLI scaffolding
 
-Create a first contract version:
+Create the first contract version:
 
 ```bash
-usecaseapi scaffold myapp orders.place_order --version 1
+usecaseapi scaffold commerce place_order --output-root src
 ```
 
-Create the next major version by scanning existing versions:
+Create the next major version from the latest existing contract:
 
 ```bash
-usecaseapi scaffold myapp orders.place_order --next
+usecaseapi scaffold commerce place_order --output-root src --next
 ```
 
-This creates:
+The first command creates:
 
 ```text
-src/myapp/usecases/orders/place_order/v1/place_order_contract.py
-src/myapp/usecases/orders/place_order/v1/place_order_usecase.py
-tests/usecases/orders/place_order/v1/test_place_order_usecase.py
+src/commerce/usecases/place_order/v1/place_order_contract.py
+src/commerce/usecases/place_order/v1/place_order_usecase.py
+tests/commerce/usecases/place_order/v1/test_place_order.py
 ```
 
 See [docs/scaffold.md](docs/scaffold.md) for the generated layout and options.

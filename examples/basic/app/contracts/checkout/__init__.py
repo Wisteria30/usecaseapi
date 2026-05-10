@@ -1,1 +1,0 @@
-"""Checkout contract domain package."""

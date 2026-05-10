@@ -10,7 +10,7 @@ Base class for domain errors that are part of public usecase contracts. Subclass
 
 ```python
 class PlaceOrderError(UseCaseError):
-    code: ClassVar[str] = "orders.place_order"
+    code: ClassVar[str] = "commerce.place_order"
 ```
 
 ## `UseCase[InputT, OutputT]`
@@ -18,8 +18,8 @@ class PlaceOrderError(UseCaseError):
 Structural Protocol for async callable usecase implementations.
 
 ```python
-class PlaceOrder(UseCase[Input, Output], Protocol):
-    async def __call__(self, input: Input, /) -> Output:
+class PlaceOrder(UseCase[PlaceOrderUseCaseInput, PlaceOrderUseCaseOutput], Protocol):
+    async def __call__(self, input: PlaceOrderUseCaseInput, /) -> PlaceOrderUseCaseOutput:
         ...
 ```
 
@@ -49,8 +49,8 @@ Registry and runtime.
 
 ```python
 api = UseCaseAPI[AppContext]()
-api.register(PLACE_ORDER)
-api.bind(PLACE_ORDER, lambda caller: PlaceOrderUseCase())
+api.register(PLACE_ORDER_USECASE)
+api.bind(PLACE_ORDER_USECASE, lambda caller: PlaceOrderUseCase())
 api.validate()
 caller = api.caller(context)
 ```
@@ -60,7 +60,7 @@ caller = api.caller(context)
 Context-bound call surface.
 
 ```python
-output = await caller.call(PLACE_ORDER, input)
+output = await caller.call(PLACE_ORDER_USECASE, input)
 results = await caller.gather(caller.call(A, a), caller.call(B, b))
 ```
 

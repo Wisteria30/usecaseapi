@@ -3,14 +3,14 @@
 UseCaseAPI uses explicit major versions.
 
 ```text
-src/{package}/usecases/{namespace...}/{usecase}/v{major}/{usecase}_contract.py
+{user_path}/{package}/usecases/{usecase}/v{major}/{usecase}_contract.py
 ```
 
 Examples:
 
 ```text
-src/myapp/usecases/orders/place_order/v1/place_order_contract.py
-src/myapp/usecases/orders/place_order/v2/place_order_contract.py
+src/commerce/usecases/place_order/v1/place_order_contract.py
+src/commerce/usecases/place_order/v2/place_order_contract.py
 ```
 
 The contract key is `name@v{major}`. There is no implicit `latest`.
@@ -36,10 +36,10 @@ Prefer declaring a usecase-specific base error in `raises`, then documenting lea
 
 ```python
 class PlaceOrderError(UseCaseError):
-    code: ClassVar[str] = "orders.place_order"
+    code: ClassVar[str] = "commerce.place_order"
 
 class InventoryShortage(PlaceOrderError):
-    code: ClassVar[str] = "orders.place_order.inventory_shortage"
+    code: ClassVar[str] = "commerce.place_order.inventory_shortage"
 
 Contract(..., raises=(PlaceOrderError,), known_errors=(InventoryShortage,))
 ```
@@ -48,4 +48,4 @@ Adding a new leaf error under the declared base is usually compatible because ca
 
 ## Deprecation
 
-Mark old contracts with `deprecated=True` and optionally `superseded_by="orders.place_order@v2"`.
+Mark old contracts with `deprecated=True` and optionally `superseded_by="commerce.place_order@v2"`.

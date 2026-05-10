@@ -30,7 +30,7 @@ from usecaseapi import (
 from usecaseapi.api import Binding
 from usecaseapi.cli import main
 from usecaseapi.docs import render_markdown, render_mermaid
-from usecaseapi.scaffold import ScaffoldOptions, scaffold_usecase
+from usecaseapi.scaffold import ScaffoldOptions, ScaffoldResult, scaffold_usecase
 from usecaseapi.snapshot import (
     ContractDiff,
     diff_snapshots,
@@ -196,6 +196,7 @@ def test_usecase_api_registry_validation_and_metadata() -> None:
 
 def test_handler_validation_rejects_invalid_runtime_shapes() -> None:
     """Handler validation rejects invalid async, annotation, callable, and output shapes."""
+
     class SyncImpl:
         def __call__(self, input: Input, /) -> Output:
             return Output(value=input.value)
@@ -388,76 +389,61 @@ def test_docs_snapshot_and_diff_cover_contract_catalog(tmp_path: Path) -> None:
             load_snapshot(path) if isinstance(payload, list) else diff_snapshots(payload, payload)
 
 
-def test_scaffold_boundaries_and_dry_run(tmp_path: Path) -> None:
+def test_scaffold_boundaries_and_dry_run(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Scaffold validates boundary cases and does not write files in dry-run mode."""
+    monkeypatch.chdir(tmp_path)
     with pytest.raises(ValueError, match="version"):
-        scaffold_usecase(ScaffoldOptions(name="orders.create", version=0))
-    with pytest.raises(ValueError, match="from_version"):
-        scaffold_usecase(ScaffoldOptions(name="orders.create", from_version=0))
+        scaffold_usecase(ScaffoldOptions(name="commerce.create", version=0))
+    with pytest.raises(ValueError, match="version and next"):
+        scaffold_usecase(ScaffoldOptions(name="commerce.create", version=1, next=True))
     with pytest.raises(ValueError, match=r"domain\.use_case"):
-        scaffold_usecase(ScaffoldOptions(name="orders"))
-    with pytest.raises(ValueError, match="lower"):
-        scaffold_usecase(
-            ScaffoldOptions(
-                name="orders.create",
-                version=1,
-                from_version=1,
-                contracts_root=tmp_path / "contracts",
-            )
-        )
-    with pytest.raises(FileNotFoundError):
-        scaffold_usecase(
-            ScaffoldOptions(
-                name="orders.create",
-                from_version=1,
-                contracts_root=tmp_path / "contracts",
-            )
-        )
+        scaffold_usecase(ScaffoldOptions(name="commerce"))
+    with pytest.raises(ValueError, match="no existing versions"):
+        scaffold_usecase(ScaffoldOptions(name="commerce.create", next=True))
 
-    previous = tmp_path / "contracts" / "orders" / "create" / "v1.py"
+    missing_contract = tmp_path / "commerce/usecases/missing/v1"
+    missing_contract.mkdir(parents=True)
+    with pytest.raises(FileNotFoundError, match="previous contract file"):
+        scaffold_usecase(ScaffoldOptions(name="commerce.missing", next=True))
+
+    previous = tmp_path / "commerce/usecases/create/v1/create_contract.py"
     previous.parent.mkdir(parents=True)
     previous.write_text("VERSION = 1\n")
     with pytest.raises(ValueError, match="could not find version=1"):
         scaffold_usecase(
             ScaffoldOptions(
-                name="orders.create",
-                from_version=1,
-                contracts_root=tmp_path / "contracts",
+                name="commerce.create",
+                next=True,
             )
         )
 
-    dry_root = tmp_path / "dry"
     result = scaffold_usecase(
         ScaffoldOptions(
-            name="orders.reserve",
-            contracts_root=dry_root / "contracts",
-            implementations_root=dry_root / "usecases",
-            tests_root=dry_root / "tests",
+            name="commerce.reserve",
             dry_run=True,
-            create_implementation=False,
-            create_tests=False,
         )
     )
     assert result.version == 1
-    assert result.files == (dry_root / "contracts" / "orders" / "reserve" / "v1.py",)
-    assert not dry_root.exists()
+    assert result.files == (
+        Path("commerce/usecases/reserve/v1/reserve_contract.py"),
+        Path("commerce/usecases/reserve/v1/reserve_usecase.py"),
+        Path("tests/commerce/usecases/reserve/v1/test_reserve.py"),
+    )
+    assert not (tmp_path / "commerce/usecases/reserve").exists()
 
     created = scaffold_usecase(
         ScaffoldOptions(
-            name="orders.reserve",
-            contracts_root=tmp_path / "real" / "contracts",
-            implementations_root=tmp_path / "real" / "usecases",
-            tests_root=tmp_path / "real" / "tests",
+            name="commerce.reserve",
         )
     )
     with pytest.raises(FileExistsError):
         scaffold_usecase(
             ScaffoldOptions(
-                name="orders.reserve",
+                name="commerce.reserve",
                 version=1,
-                contracts_root=tmp_path / "real" / "contracts",
-                implementations_root=tmp_path / "real" / "usecases",
-                tests_root=tmp_path / "real" / "tests",
             )
         )
     assert created.files[0].exists()
@@ -466,81 +452,64 @@ def test_scaffold_boundaries_and_dry_run(tmp_path: Path) -> None:
 def test_cli_commands_validate_service_surface(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """CLI commands inspect, document, diff, and scaffold a service surface."""
-    example_root = Path(__file__).parents[1] / "examples" / "basic"
+    example_root = Path(__file__).parents[1] / "examples" / "basic" / "src"
     sys.path.insert(0, str(example_root))
     try:
-        assert main(["check", "app.composition:usecases"]) == 0
+        assert main(["check", "composition:usecases"]) == 0
         assert "UseCaseAPI check passed" in capsys.readouterr().out
 
-        assert main(["inspect", "app.composition:usecases"]) == 0
+        assert main(["inspect", "composition:usecases"]) == 0
         inspect_output = json.loads(capsys.readouterr().out)
         assert {item["key"] for item in inspect_output["usecases"]} == {
-            "checkout.checkout@v1",
-            "inventory.check_availability@v1",
-            "orders.place_order@v1",
+            "commerce.check_availability@v1",
+            "commerce.checkout@v1",
+            "commerce.place_order@v1",
         }
 
         docs_path = tmp_path / "docs.md"
         graph_path = tmp_path / "graph.mmd"
         snapshot_path = tmp_path / "snapshot.json"
-        assert main(["docs", "app.composition:usecases", "--output", str(docs_path)]) == 0
-        assert main(["graph", "app.composition:usecases", "-o", str(graph_path)]) == 0
-        assert main(["snapshot", "app.composition:usecases", "-o", str(snapshot_path)]) == 0
-        assert "checkout.checkout v1" in docs_path.read_text()
-        assert "orders.place_order@v1" in graph_path.read_text()
+        assert main(["docs", "composition:usecases", "--output", str(docs_path)]) == 0
+        assert main(["graph", "composition:usecases", "-o", str(graph_path)]) == 0
+        assert main(["snapshot", "composition:usecases", "-o", str(snapshot_path)]) == 0
+        assert "commerce.checkout v1" in docs_path.read_text()
+        assert "commerce.place_order@v1" in graph_path.read_text()
         assert load_snapshot(snapshot_path)["schema_version"] == 1
 
-        scaffold_root = tmp_path / "generated"
+        monkeypatch.chdir(tmp_path)
         assert (
             main(
                 [
                     "scaffold",
-                    "billing.capture_payment",
-                    "--contracts-root",
-                    str(scaffold_root / "contracts"),
-                    "--implementations-root",
-                    str(scaffold_root / "usecases"),
-                    "--tests-root",
-                    str(scaffold_root / "tests"),
-                    "--contracts-package",
-                    "generated.contracts",
-                    "--implementations-package",
-                    "generated.usecases",
-                    "--no-tests",
-                    "--no-init",
+                    "billing",
+                    "capture_payment",
                 ]
             )
             == 0
         )
         scaffold_output = capsys.readouterr().out
         assert "scaffolded version: v1" in scaffold_output
-        assert "capture_payment/v1.py" in scaffold_output
+        assert "billing/usecases/capture_payment/v1/capture_payment_contract.py" in scaffold_output
+        assert "capture_payment/v1/capture_payment_usecase.py" in scaffold_output
 
         assert (
             main(
                 [
                     "scaffold",
-                    "billing.capture_payment",
+                    "billing",
+                    "capture_payment",
                     "--next",
-                    "--contracts-root",
-                    str(scaffold_root / "contracts"),
-                    "--implementations-root",
-                    str(scaffold_root / "usecases"),
-                    "--tests-root",
-                    str(scaffold_root / "tests"),
-                    "--contracts-package",
-                    "generated.contracts",
-                    "--implementations-package",
-                    "generated.usecases",
-                    "--no-tests",
-                    "--no-init",
                 ]
             )
             == 0
         )
-        assert "skipped:" in capsys.readouterr().out
+        assert (
+            "billing/usecases/capture_payment/v2/capture_payment_contract.py"
+            in capsys.readouterr().out
+        )
 
         assert main(["diff", str(snapshot_path), str(snapshot_path)]) == 0
         assert "Breaking:\n  - none" in capsys.readouterr().out
@@ -558,8 +527,8 @@ def test_cli_commands_validate_service_surface(
         assert main(["diff", str(snapshot_path), str(changed_path)]) == 1
         assert "removed usecase" in capsys.readouterr().out
 
-        assert main(["snapshot", "app.composition:usecases"]) == 0
-        assert "checkout.checkout@v1" in capsys.readouterr().out
+        assert main(["snapshot", "composition:usecases"]) == 0
+        assert "commerce.checkout@v1" in capsys.readouterr().out
     finally:
         sys.path.remove(str(example_root))
 
@@ -569,30 +538,68 @@ def test_cli_import_path_errors_and_main_module(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """CLI reports invalid import paths and supports module execution."""
+    import typer
+
+    import usecaseapi.cli as cli
+
+    assert isinstance(cli.app, typer.Typer)
+
     with pytest.raises(ValueError, match="module:attribute"):
         main(["check", "not-an-import-path"])
     with pytest.raises(TypeError, match="UseCaseAPI"):
         main(["check", "json:loads"])
 
-    class Parsed:
-        command = "unknown"
-
-    class Parser:
-        def parse_args(self, argv: object) -> Parsed:
-            return Parsed()
-
-        def print_help(self) -> None:
-            print("help from fake parser")
-
-    monkeypatch.setattr("usecaseapi.cli._build_parser", lambda: Parser())
-    assert main([]) == 2
-    assert "help from fake parser" in capsys.readouterr().out
+    assert main([]) == 0
+    assert "Usage:" in capsys.readouterr().out
 
     monkeypatch.setattr(sys, "argv", ["usecaseapi", "--help"])
     sys.modules.pop("usecaseapi.cli", None)
     with pytest.raises(SystemExit) as exc_info:
         runpy.run_module("usecaseapi.cli", run_name="__main__")
     assert exc_info.value.code == 0
+
+
+def test_cli_scaffold_argument_error_and_main_exit_handling(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """CLI reports scaffold argument errors and preserves Typer exit codes."""
+    import click
+
+    assert main(["scaffold", "billing", "capture_payment", "--version", "1", "--next"]) == 2
+    assert "version and --next cannot be used together" in capsys.readouterr().err
+
+    assert main(["scaffold", "billing"]) == 2
+    assert "Missing argument" in capsys.readouterr().err
+
+    monkeypatch.setitem(
+        main.__globals__,
+        "scaffold_usecase",
+        lambda options: ScaffoldResult(
+            files=(Path("created.py"),),
+            version=1,
+        ),
+    )
+
+    assert main(["scaffold", "billing", "capture_payment"]) == 0
+    output = capsys.readouterr().out
+    assert "created: created.py" in output
+
+    monkeypatch.setitem(main.__globals__, "app", lambda **kwargs: 7)
+    assert main(["anything"]) == 7
+
+    def raise_exit(**kwargs: object) -> int:
+        raise click.exceptions.Exit(5)
+
+    monkeypatch.setitem(main.__globals__, "app", raise_exit)
+    assert main(["anything"]) == 5
+
+    def raise_click_exception(**kwargs: object) -> int:
+        raise click.UsageError("invalid command usage")
+
+    monkeypatch.setitem(main.__globals__, "app", raise_click_exception)
+    assert main(["anything"]) == 2
+    assert "invalid command usage" in capsys.readouterr().err
 
 
 def test_usecase_error_serialization() -> None:
