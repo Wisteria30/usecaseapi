@@ -409,8 +409,97 @@ def render_manifest_markdown(manifest: Mapping[str, Any]) -> str:
         known_errors = string_list(item.get("known_errors"))
         if known_errors:
             lines.append("- Known errors: " + ", ".join(f"`{error}`" for error in known_errors))
+        lines.extend(render_markdown_source(item))
+        lines.extend(render_markdown_models(item))
+        lines.extend(render_markdown_errors(item))
         lines.append("")
     return "\n".join(lines)
+
+
+def render_markdown_source(item: Mapping[str, Any]) -> list[str]:
+    """Render source mapping for one usecase."""
+    source = required_mapping(item.get("source"), "source")
+    lines = ["", "### Source", ""]
+    for key in (
+        "contract_module",
+        "protocol_class",
+        "ref",
+        "contract_file",
+        "implementation_class",
+        "implementation_file",
+        "binding_factory",
+        "binding_file",
+    ):
+        value = source.get(key)
+        if isinstance(value, str) and value:
+            lines.append(f"- `{key}`: `{value}`")
+    return lines
+
+
+def render_markdown_models(item: Mapping[str, Any]) -> list[str]:
+    """Render model descriptions and fields for one usecase."""
+    models = manifest_models(item)
+    lines = ["", "### Models", ""]
+    for model in models:
+        lines.append(f"#### `{required_string(model, 'name')}`")
+        description = model.get("description")
+        if isinstance(description, str) and description:
+            lines.extend(["", description])
+        fields = manifest_fields(model)
+        if fields:
+            lines.extend(
+                [
+                    "",
+                    "| Field | Type | Required | Description |",
+                    "| --- | --- | --- | --- |",
+                ]
+            )
+            for field in fields:
+                field_description = field.get("description")
+                description_text = field_description if isinstance(field_description, str) else "-"
+                lines.append(
+                    "| "
+                    f"`{required_string(field, 'name')}` | "
+                    f"`{required_string(field, 'type')}` | "
+                    f"{'yes' if field.get('required') is True else 'no'} | "
+                    f"{description_text} |"
+                )
+        else:
+            lines.extend(["", "_No fields._"])
+        lines.append("")
+    if lines[-1] == "":
+        lines.pop()
+    return lines
+
+
+def render_markdown_errors(item: Mapping[str, Any]) -> list[str]:
+    """Render public error contract information for one usecase."""
+    errors = manifest_errors(item)
+    if not errors:
+        return []
+    lines = [
+        "",
+        "### Errors",
+        "",
+        "| Error | Base | Code | Description | Fields |",
+        "| --- | --- | --- | --- | --- |",
+    ]
+    for error in errors:
+        description = error.get("description")
+        description_text = description if isinstance(description, str) else "-"
+        fields = ", ".join(
+            f"`{required_string(field, 'name')}: {required_string(field, 'type')}`"
+            for field in manifest_fields(error)
+        )
+        lines.append(
+            "| "
+            f"`{required_string(error, 'name')}` | "
+            f"`{required_string(error, 'base')}` | "
+            f"`{required_string(error, 'code')}` | "
+            f"{description_text} | "
+            f"{fields or '-'} |"
+        )
+    return lines
 
 
 def render_manifest_graph(manifest: Mapping[str, Any]) -> str:
@@ -617,13 +706,17 @@ def error_to_manifest(error_type: type[UseCaseError]) -> dict[str, Any]:
     """Convert a UseCaseError class into Manifest error metadata."""
     bases = [base for base in error_type.__bases__ if issubclass(base, UseCaseError)]
     base_name = bases[0].__name__ if bases else "UseCaseError"
-    return {
+    item: dict[str, Any] = {
         "name": error_type.__name__,
         "module": error_type.__module__,
         "base": base_name,
         "code": getattr(error_type, "code", ""),
         "fields": error_fields(error_type),
     }
+    description = inspect.getdoc(error_type)
+    if description is not None:
+        item["description"] = description
+    return item
 
 
 def error_fields(error_type: type[UseCaseError]) -> list[dict[str, Any]]:

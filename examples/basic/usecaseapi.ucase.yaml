@@ -161,6 +161,7 @@ usecases:
     base: UseCaseError
     code: commerce.place_order
     fields: []
+    description: Base error for place order failures.
   - name: InventoryShortage
     module: commerce.usecases.place_order.v1.place_order_contract
     base: PlaceOrderError
@@ -175,6 +176,7 @@ usecases:
     - name: available
       type: int
       required: true
+    description: Raised when requested inventory is unavailable.
   raises:
   - PlaceOrderError
   known_errors:

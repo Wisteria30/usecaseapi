@@ -610,6 +610,14 @@ def test_manifest_renders_docs_graph_and_diff() -> None:
     diff = diff_manifests(manifest, changed)
 
     assert "example.run v1" in markdown
+    assert "### Models" in markdown
+    assert "Input for the manifest example." in markdown
+    assert "| `value` | `int` | yes |" in markdown
+    assert "### Errors" in markdown
+    assert "| `ExampleRejected` | `ExampleError` | `example.run.rejected` |" in markdown
+    assert "Specific example error." in markdown
+    assert "### Source" in markdown
+    assert "`contract_module`: `test_manifest`" in markdown
     assert "ExampleRejected" in markdown
     assert "example.run@v1" in graph
     assert diff.has_breaking_changes
