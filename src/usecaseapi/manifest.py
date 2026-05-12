@@ -388,7 +388,7 @@ def openapi_components(usecases: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         for error in manifest_errors(usecase):
             payload_name = error_payload_component_name(usecase, error)
             envelope_name = error_envelope_component_name(usecase, error)
-            schemas[payload_name] = error_payload_schema(error)
+            schemas[payload_name] = error_payload_schema(usecase, error)
             schemas[envelope_name] = error_envelope_schema(error, payload_name)
         if string_list(usecase.get("raises")) or string_list(usecase.get("known_errors")):
             responses[response_component_name(usecase)] = domain_error_response(usecase)
@@ -428,13 +428,13 @@ def model_schema(usecase: Mapping[str, Any], model: Mapping[str, Any]) -> dict[s
     )
 
 
-def error_payload_schema(error: Mapping[str, Any]) -> dict[str, Any]:
+def error_payload_schema(usecase: Mapping[str, Any], error: Mapping[str, Any]) -> dict[str, Any]:
     """Build an error payload schema."""
     properties: dict[str, Any] = {}
     required: list[str] = []
     for field in manifest_fields(error):
         field_name = required_string(field, "name")
-        properties[field_name] = field_schema({}, field)
+        properties[field_name] = field_schema(usecase, field)
         if field.get("required", True) is True:
             required.append(field_name)
     return without_none(
@@ -1103,8 +1103,13 @@ def scaffold_from_manifest(
 ) -> ManifestScaffoldResult:
     """Generate Python contract, implementation, and test skeletons from a Manifest."""
     validate_manifest(manifest)
+    semantic = (
+        semantic_from_openapi_manifest(manifest)
+        if manifest.get("openapi") == OPENAPI_VERSION
+        else manifest
+    )
     root_path = Path(root)
-    layout = manifest.get("layout")
+    layout = semantic.get("layout")
     layout_mapping = layout if isinstance(layout, Mapping) else {}
     contracts_root = string_or_default(layout_mapping.get("contracts_root"), "app/contracts")
     implementations_root = string_or_default(
@@ -1117,7 +1122,7 @@ def scaffold_from_manifest(
 
     created: list[Path] = []
     skipped: list[Path] = []
-    for usecase in usecase_items(manifest):
+    for usecase in usecase_items_from_semantic(semantic):
         source = required_mapping(usecase.get("source"), "usecase.source")
         contract_file = root_path / string_or_default(
             source.get("contract_file"),

@@ -608,6 +608,23 @@ def test_manifest_scaffold_handles_dry_run_existing_files_and_default_paths(
     with pytest.raises(FileExistsError, match="already exists"):
         scaffold_from_manifest(manifest, root=tmp_path, create_implementation=False)
 
+    v2_manifest = deepcopy(manifest)
+    v2_manifest["layout"] = {
+        "contracts_root": "src/contracts",
+        "implementations_root": "src/usecases",
+        "tests_root": "specs",
+        "package": "app",
+    }
+    v2_openapi_manifest = manifest_module.openapi_manifest_from_semantic(v2_manifest)
+    v2_result = scaffold_from_manifest(
+        v2_openapi_manifest,
+        root=tmp_path / "v2",
+        dry_run=True,
+    )
+    assert tmp_path / "v2/src/contracts/example/run/v1.py" in v2_result.files
+    assert tmp_path / "v2/src/usecases/example/run.py" in v2_result.files
+    assert tmp_path / "v2/specs/example/run/v1/test_run.py" in v2_result.files
+
 
 def test_manifest_renders_docs_graph_and_diff() -> None:
     """Docs, graph, and diff are derived from Manifest YAML data."""
@@ -1081,6 +1098,26 @@ def test_manifest_v2_schema_and_helper_edge_branches() -> None:
         manifest_module.schema_by_ref(manifest, "#/components/responses/Error")
 
     assert manifest_module.class_name_from_component_ref("#/components/schemas/Plain") == "Plain"
+
+    error_model_manifest = minimal_manifest()
+    error_model_usecase = error_model_manifest["usecases"][0]
+    error_model_usecase["errors"] = [
+        {
+            "name": "ExampleError",
+            "base": "UseCaseError",
+            "code": "example.run",
+            "fields": [{"name": "input", "type": "Input", "required": True}],
+        }
+    ]
+    error_model_usecase["raises"] = ["ExampleError"]
+    error_model_openapi = manifest_module.openapi_manifest_from_semantic(error_model_manifest)
+    payload_schema = error_model_openapi["components"]["schemas"]["ExampleRunV1ExampleErrorPayload"]
+    assert payload_schema["properties"]["input"] == {
+        "$ref": "#/components/schemas/ExampleRunV1Input"
+    }
+    assert manifest_module.semantic_from_openapi_manifest(error_model_openapi)["usecases"][0][
+        "errors"
+    ][0]["fields"] == [{"name": "input", "type": "Input", "required": True}]
 
     documented = minimal_manifest()
     documented["metadata"] = {"name": "demo"}
