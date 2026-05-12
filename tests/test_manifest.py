@@ -975,3 +975,124 @@ def test_manifest_named_helpers_cover_edge_branches(
     )
     assert manifest_module.project_name({}) is None
     assert manifest_module.package_name({}) is None
+
+
+def test_manifest_v2_openapi_profile_error_branches() -> None:
+    """OpenAPI profile validation and normalization failures stay explicit."""
+    api = UseCaseAPI[None]()
+    api.bind(EXAMPLE, lambda caller: ExampleImpl())
+    manifest = manifest_from_api(api, project="demo")
+
+    invalid_openapi = deepcopy(manifest)
+    invalid_openapi["openapi"] = "3.0.3"
+    with pytest.raises(ManifestError, match="manifest.openapi"):
+        validate_manifest(invalid_openapi)
+
+    missing_surface = deepcopy(manifest)
+    missing_surface.pop("paths")
+    missing_surface.pop("components")
+    with pytest.raises(ManifestError, match="paths or components"):
+        validate_manifest(missing_surface)
+
+    invalid_version = deepcopy(manifest)
+    invalid_version["x-usecaseapi"]["version"] = "0.0.0"
+    with pytest.raises(ManifestError, match="x-usecaseapi.version"):
+        validate_manifest(invalid_version)
+
+    invalid_profile = deepcopy(manifest)
+    invalid_profile["x-usecaseapi"]["profile"] = "other"
+    with pytest.raises(ManifestError, match="x-usecaseapi.profile"):
+        validate_manifest(invalid_profile)
+
+    invalid_manifest_kind = deepcopy(manifest)
+    invalid_manifest_kind["x-usecaseapi"]["manifestKind"] = "other"
+    with pytest.raises(ManifestError, match="x-usecaseapi.manifestKind"):
+        validate_manifest(invalid_manifest_kind)
+
+    skipped_paths = deepcopy(manifest)
+    paths = skipped_paths["paths"]
+    paths[123] = {"post": {}}
+    paths["/_ignored/no_post"] = {"get": {}}
+    paths["/_ignored/not_usecase"] = {"post": {"x-usecaseapi": {"kind": "other"}}}
+    assert len(manifest_module.semantic_from_openapi_manifest(skipped_paths)["usecases"]) == 1
+
+    path, path_item = next(iter(manifest["paths"].items()))
+    operation = path_item["post"]
+    with pytest.raises(ManifestError, match="usecase path"):
+        manifest_module.openapi_operation_to_usecase(
+            "/_usecases/example.run/v2/call",
+            operation,
+            operation["x-usecaseapi"],
+            manifest,
+        )
+
+
+def test_manifest_v2_schema_and_helper_edge_branches() -> None:
+    """v2 schema conversion helpers cover unsupported and malformed edge cases."""
+    api = UseCaseAPI[None]()
+    api.bind(EXAMPLE, lambda caller: ExampleImpl())
+    manifest = manifest_from_api(api, project="demo")
+
+    assert manifest_module.type_expr_to_schema("Custom", usecase={}) == {}
+    assert manifest_module.type_ast_to_schema(
+        ast.parse("'fixed'", mode="eval").body,
+        usecase={},
+    ) == {"const": "fixed"}
+    assert (
+        manifest_module.type_ast_to_schema(
+            ast.parse("lambda: 1", mode="eval").body,
+            usecase={},
+        )
+        == {}
+    )
+    typing_list = ast.parse("typing.List[str]", mode="eval").body
+    assert isinstance(typing_list, ast.Subscript)
+    assert manifest_module.subscript_ast_to_schema(typing_list, usecase={}) == {}
+
+    frozenset_type = ast.parse("frozenset[str]", mode="eval").body
+    assert isinstance(frozenset_type, ast.Subscript)
+    assert manifest_module.subscript_ast_to_schema(frozenset_type, usecase={}) == {}
+    assert manifest_module.ast_arg_schema([], 0, usecase={}) == {}
+
+    malformed_model = {
+        "properties": {
+            1: {"type": "string"},
+            "ignored": "not a schema",
+            "value": {"type": "integer"},
+        },
+        "required": ["value"],
+    }
+    assert manifest_module.schema_to_model("Malformed", malformed_model)["fields"] == [
+        {"name": "value", "type": "int", "required": True}
+    ]
+
+    missing_class = deepcopy(manifest)
+    first_schema = next(iter(missing_class["components"]["schemas"].values()))
+    first_schema.pop("title", None)
+    first_schema["x-usecaseapi"] = {"kind": "model"}
+    with pytest.raises(ManifestError, match="must declare a Python class"):
+        manifest_module.semantic_from_openapi_manifest(missing_class)
+
+    with pytest.raises(ManifestError, match="x-usecaseapi.uses must be a mapping"):
+        manifest_module.uses_from_extension({"uses": []})
+    with pytest.raises(ManifestError, match="x-usecaseapi.uses entries"):
+        manifest_module.uses_from_extension({"uses": {"bad": "entry"}})
+    with pytest.raises(ManifestError, match="unsupported schema reference"):
+        manifest_module.schema_by_ref(manifest, "#/components/responses/Error")
+
+    assert manifest_module.class_name_from_component_ref("#/components/schemas/Plain") == "Plain"
+
+    documented = minimal_manifest()
+    documented["metadata"] = {"name": "demo"}
+    assert "Project: `demo`" in render_manifest_markdown(documented)
+
+    with pytest.raises(ManifestError, match="manifest.usecases"):
+        manifest_module.usecase_items_from_semantic({"usecases": {}})
+
+    assert (
+        manifest_module.module_from_python_file(
+            Path("src/example/contracts/run.py"),
+            package="example",
+        )
+        == "example.contracts.run"
+    )
