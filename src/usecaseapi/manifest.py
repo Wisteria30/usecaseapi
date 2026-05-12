@@ -21,10 +21,16 @@ from .contracts import UseCaseRef
 from .errors import UseCaseError
 from .model import Model
 
-MANIFEST_KIND = "usecaseapi.manifest/v1"
-MANIFEST_MEDIA_TYPE = "application/vnd.usecaseapi.manifest.v1+yaml"
-MANIFEST_EXTENSION = ".ucase.yaml"
-PROTOCOL_KIND = "usecaseapi.inprocess.async_call/v1"
+LEGACY_MANIFEST_KIND = "usecaseapi.manifest/v1"
+MANIFEST_PROFILE_KIND = "usecaseapi.openapi.profile/3.1.0"
+MANIFEST_KIND = MANIFEST_PROFILE_KIND
+MANIFEST_MEDIA_TYPE = "application/vnd.usecaseapi.openapi.profile.v2+yaml"
+MANIFEST_EXTENSION = ".yaml"
+OPENAPI_VERSION = "3.1.0"
+USECASEAPI_PROFILE = "usecaseapi.openapi"
+USECASEAPI_VERSION = "3.1.0"
+PROTOCOL_KIND = "usecaseapi.inprocess.async_call.v1"
+LEGACY_PROTOCOL_KIND = "usecaseapi.inprocess.async_call/v1"
 
 _BUILTIN_TYPE_NAMES = {
     "Any",
@@ -131,17 +137,18 @@ def manifest_from_api(
     if resolved_package is not None:
         layout["package"] = resolved_package
 
-    manifest: dict[str, Any] = {
-        "kind": MANIFEST_KIND,
+    legacy_manifest: dict[str, Any] = {
+        "kind": LEGACY_MANIFEST_KIND,
         "metadata": {"name": project or "usecaseapi-project"},
         "runtime": {
             "language": "python",
             "python": ">=3.12,<3.15",
-            "protocol": PROTOCOL_KIND,
+            "protocol": LEGACY_PROTOCOL_KIND,
         },
         "layout": layout,
         "usecases": usecases,
     }
+    manifest = openapi_manifest_from_semantic(legacy_manifest)
     validate_manifest(manifest)
     return manifest
 
@@ -182,6 +189,508 @@ def infer_contracts_root(*, package: str | None, implementations_root: str) -> s
     return str(Path(implementations_root) / package)
 
 
+def openapi_manifest_from_semantic(manifest: Mapping[str, Any]) -> dict[str, Any]:
+    """Convert UseCaseAPI semantic metadata into the v2 OpenAPI profile."""
+    usecases = usecase_items_from_semantic(manifest)
+    components = openapi_components(usecases)
+    project = project_name_from_semantic(manifest) or "usecaseapi-project"
+    paths: dict[str, Any] = {}
+    tags = sorted({tag for usecase in usecases for tag in string_list(usecase.get("tags"))})
+    for usecase in usecases:
+        path = usecase_operation_path(usecase)
+        paths[path] = {"post": openapi_operation(usecase)}
+
+    return without_none(
+        {
+            "openapi": OPENAPI_VERSION,
+            "info": {
+                "title": project,
+                "version": "1.0.0",
+                "description": "UseCaseAPI manifest for same-process application usecases.",
+                "license": {"name": "MIT", "identifier": "MIT"},
+            },
+            "jsonSchemaDialect": "https://json-schema.org/draft/2020-12/schema",
+            "servers": [
+                {
+                    "url": "http://localhost",
+                    "description": (
+                        "Optional UseCaseAPI HTTP adapter base URL. Native UseCaseAPI calls "
+                        "are same-process and do not require this transport."
+                    ),
+                }
+            ],
+            "security": [],
+            "tags": [{"name": tag} for tag in tags],
+            "paths": paths,
+            "components": components,
+            "x-usecaseapi": openapi_root_extension(manifest, usecases),
+        }
+    )
+
+
+def openapi_root_extension(
+    manifest: Mapping[str, Any],
+    usecases: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    """Build the root UseCaseAPI profile extension."""
+    layout = manifest.get("layout")
+    layout_mapping = layout if isinstance(layout, Mapping) else {}
+    package = layout_mapping.get("package")
+    roots: dict[str, str] = {
+        "contracts": string_or_default(layout_mapping.get("contracts_root"), "app/contracts"),
+        "implementations": string_or_default(
+            layout_mapping.get("implementations_root"),
+            "app/usecases",
+        ),
+        "tests": string_or_default(layout_mapping.get("tests_root"), "tests"),
+    }
+    runtime: dict[str, Any] = {
+        "language": "python",
+        "version": ">=3.12,<3.15",
+        "roots": roots,
+    }
+    if isinstance(package, str) and package:
+        runtime["package"] = package
+
+    return {
+        "version": USECASEAPI_VERSION,
+        "profile": USECASEAPI_PROFILE,
+        "manifestKind": MANIFEST_PROFILE_KIND,
+        "defaults": {
+            "runtime": "python",
+            "protocol": PROTOCOL_KIND,
+        },
+        "runtimes": {"python": runtime},
+        "protocols": {
+            PROTOCOL_KIND: {
+                "type": "inprocess",
+                "interaction": "requestReply",
+                "action": "call",
+                "async": True,
+                "serialization": "none",
+                "description": "Same-process async request/reply usecase call.",
+            }
+        },
+        "components": {
+            "errors": openapi_error_components(usecases),
+        },
+    }
+
+
+def openapi_operation(usecase: Mapping[str, Any]) -> dict[str, Any]:
+    """Build one OpenAPI operation for a UseCaseAPI call."""
+    key = usecase_key(usecase)
+    tags = [*string_list(usecase.get("tags")), *string_list(usecase.get("binding_tags"))]
+    input_schema = component_ref(component_name(usecase, required_string(usecase, "input")))
+    output_schema = component_ref(component_name(usecase, required_string(usecase, "output")))
+    description = usecase.get("description")
+    raises = string_list(usecase.get("raises"))
+    known_errors = string_list(usecase.get("known_errors"))
+    responses: dict[str, Any] = {
+        "200": {
+            "description": response_description(usecase),
+            "content": {"application/json": {"schema": output_schema}},
+        },
+    }
+    if raises or known_errors:
+        responses["default"] = {
+            "$ref": f"#/components/responses/{response_component_name(usecase)}"
+        }
+
+    return without_none(
+        {
+            "operationId": operation_id(usecase),
+            "tags": tags,
+            "summary": description,
+            "description": description,
+            "deprecated": bool(usecase.get("deprecated", False)),
+            "requestBody": {
+                "required": True,
+                "content": {"application/json": {"schema": input_schema}},
+            },
+            "responses": responses,
+            "x-usecaseapi": {
+                "kind": "usecase",
+                "key": key,
+                "name": required_string(usecase, "name"),
+                "version": required_int(usecase, "version"),
+                "action": "call",
+                "lifecycle": {
+                    "stability": "stable" if usecase.get("stable", True) else "experimental",
+                    "deprecated": bool(usecase.get("deprecated", False)),
+                    "supersededBy": usecase.get("superseded_by"),
+                },
+                "protocol": PROTOCOL_KIND,
+                "semantics": {
+                    "kind": "command",
+                    "sideEffects": True,
+                    "idempotent": False,
+                    "cacheable": False,
+                },
+                "context": {"source": "runtime", "required": False, "schema": None},
+                "input": {
+                    "pythonName": required_string(usecase, "input"),
+                    "schema": input_schema["$ref"],
+                },
+                "output": {
+                    "pythonName": required_string(usecase, "output"),
+                    "schema": output_schema["$ref"],
+                },
+                "errors": {"raises": raises, "known": known_errors},
+                "uses": {
+                    dependency_name(use_key): {"key": use_key, "required": True}
+                    for use_key in string_list(usecase.get("uses"))
+                },
+                "bindings": {"python": openapi_python_binding(usecase)},
+            },
+        }
+    )
+
+
+def openapi_python_binding(usecase: Mapping[str, Any]) -> dict[str, Any]:
+    """Build Python binding metadata for one operation."""
+    source = required_mapping(usecase.get("source"), "usecase.source")
+    contract: dict[str, Any] = {
+        "module": required_string(source, "contract_module"),
+        "protocolClass": required_string(source, "protocol_class"),
+        "ref": required_string(source, "ref"),
+    }
+    contract_file = source.get("contract_file")
+    if isinstance(contract_file, str) and contract_file:
+        contract["file"] = contract_file
+    implementation: dict[str, Any] = {}
+    implementation_class = source.get("implementation_class")
+    if isinstance(implementation_class, str) and implementation_class:
+        implementation["class"] = implementation_class
+    implementation_file = source.get("implementation_file")
+    if isinstance(implementation_file, str) and implementation_file:
+        implementation["file"] = implementation_file
+    binding: dict[str, Any] = {
+        "signature": (
+            f"async __call__(input: {required_string(usecase, 'input')}) -> "
+            f"{required_string(usecase, 'output')}"
+        ),
+        "contract": contract,
+    }
+    if implementation:
+        binding["implementation"] = implementation
+    return binding
+
+
+def openapi_components(usecases: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    """Build OpenAPI reusable components."""
+    schemas: dict[str, Any] = {}
+    responses: dict[str, Any] = {}
+    for usecase in usecases:
+        for model in manifest_models(usecase):
+            name = component_name(usecase, required_string(model, "name"))
+            schemas[name] = model_schema(usecase, model)
+        for error in manifest_errors(usecase):
+            payload_name = error_payload_component_name(usecase, error)
+            envelope_name = error_envelope_component_name(usecase, error)
+            schemas[payload_name] = error_payload_schema(error)
+            schemas[envelope_name] = error_envelope_schema(error, payload_name)
+        if string_list(usecase.get("raises")) or string_list(usecase.get("known_errors")):
+            responses[response_component_name(usecase)] = domain_error_response(usecase)
+    result: dict[str, Any] = {"schemas": schemas}
+    if responses:
+        result["responses"] = responses
+    return result
+
+
+def model_schema(usecase: Mapping[str, Any], model: Mapping[str, Any]) -> dict[str, Any]:
+    """Convert Manifest model metadata to an OpenAPI schema component."""
+    model_name = required_string(model, "name")
+    properties: dict[str, Any] = {}
+    required: list[str] = []
+    for field in manifest_fields(model):
+        field_name = required_string(field, "name")
+        properties[field_name] = field_schema(usecase, field)
+        if field.get("required", True) is True:
+            required.append(field_name)
+    return without_none(
+        {
+            "title": model_name,
+            "description": model.get("description"),
+            "type": "object",
+            "additionalProperties": False,
+            "required": required,
+            "properties": properties,
+            "x-usecaseapi": {
+                "kind": schema_kind(usecase, model_name),
+                "canonicalName": (
+                    f"{required_string(usecase, 'name')}.v{required_int(usecase, 'version')}."
+                    f"{model_name}"
+                ),
+                "bindings": {"python": {"class": model_name}},
+            },
+        }
+    )
+
+
+def error_payload_schema(error: Mapping[str, Any]) -> dict[str, Any]:
+    """Build an error payload schema."""
+    properties: dict[str, Any] = {}
+    required: list[str] = []
+    for field in manifest_fields(error):
+        field_name = required_string(field, "name")
+        properties[field_name] = field_schema({}, field)
+        if field.get("required", True) is True:
+            required.append(field_name)
+    return without_none(
+        {
+            "title": required_string(error, "name") + "Payload",
+            "description": error.get("description"),
+            "type": "object",
+            "additionalProperties": False,
+            "required": required,
+            "properties": properties,
+        }
+    )
+
+
+def field_schema(usecase: Mapping[str, Any], field: Mapping[str, Any]) -> dict[str, Any]:
+    """Convert a Manifest field to a JSON Schema fragment."""
+    schema = type_expr_to_schema(required_string(field, "type"), usecase=usecase)
+    description = field.get("description")
+    if isinstance(description, str) and description:
+        schema["description"] = description
+    return schema
+
+
+def type_expr_to_schema(expr: str, *, usecase: Mapping[str, Any]) -> dict[str, Any]:
+    """Convert the supported Manifest annotation subset to JSON Schema."""
+    validate_type_expr(expr)
+    primitive = primitive_type_expr_to_schema(expr)
+    if primitive is not None:
+        return primitive
+    if expr in {"Any", "None"}:
+        return {} if expr == "Any" else {"type": "null"}
+    if expr in {"UUID", "date", "datetime", "Decimal"}:
+        formats = {"UUID": "uuid", "date": "date", "datetime": "date-time", "Decimal": "decimal"}
+        return {"type": "string", "format": formats[expr]}
+    parsed = ast.parse(expr, mode="eval").body
+    if isinstance(parsed, ast.Name):
+        if usecase:
+            return component_ref(component_name(usecase, parsed.id))
+        return {}
+    return type_ast_to_schema(parsed, usecase=usecase)
+
+
+def primitive_type_expr_to_schema(expr: str) -> dict[str, Any] | None:
+    """Convert primitive Python type expressions to JSON Schema."""
+    schemas = {
+        "str": {"type": "string"},
+        "int": {"type": "integer"},
+        "float": {"type": "number"},
+        "bool": {"type": "boolean"},
+        "bytes": {"type": "string", "contentEncoding": "base64"},
+    }
+    return schemas.get(expr)
+
+
+def type_ast_to_schema(node: ast.AST, *, usecase: Mapping[str, Any]) -> dict[str, Any]:
+    """Convert parsed annotation syntax to JSON Schema."""
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
+        return {
+            "anyOf": [
+                type_ast_to_schema(node.left, usecase=usecase),
+                type_ast_to_schema(node.right, usecase=usecase),
+            ]
+        }
+    if isinstance(node, ast.Constant) and node.value is None:
+        return {"type": "null"}
+    if isinstance(node, ast.Subscript) and isinstance(node.value, ast.Name):
+        return subscript_ast_to_schema(node, usecase=usecase)
+    if isinstance(node, ast.Name):
+        return type_expr_to_schema(node.id, usecase=usecase)
+    if isinstance(node, ast.Constant):
+        return {"const": node.value}
+    return {}
+
+
+def subscript_ast_to_schema(node: ast.Subscript, *, usecase: Mapping[str, Any]) -> dict[str, Any]:
+    """Convert supported subscript annotation syntax to JSON Schema."""
+    if not isinstance(node.value, ast.Name):
+        return {}
+    name = node.value.id
+    args = subscript_args(node.slice)
+    if name == "Literal":
+        return {"enum": literal_values(node.slice)}
+    if name == "list":
+        return {"type": "array", "items": ast_arg_schema(args, 0, usecase=usecase)}
+    if name == "set":
+        return {
+            "type": "array",
+            "uniqueItems": True,
+            "items": ast_arg_schema(args, 0, usecase=usecase),
+        }
+    if name == "dict":
+        return {
+            "type": "object",
+            "additionalProperties": ast_arg_schema(args, 1, usecase=usecase),
+        }
+    if name == "tuple":
+        return {
+            "type": "array",
+            "prefixItems": [type_ast_to_schema(arg, usecase=usecase) for arg in args],
+            "minItems": len(args),
+            "maxItems": len(args),
+        }
+    return {}
+
+
+def ast_arg_schema(
+    args: Sequence[ast.AST], index: int, *, usecase: Mapping[str, Any]
+) -> dict[str, Any]:
+    """Return the JSON Schema for one annotation argument."""
+    if len(args) <= index:
+        return {}
+    return type_ast_to_schema(args[index], usecase=usecase)
+
+
+def literal_values(node: ast.AST) -> list[Any]:
+    """Return values from a Literal[...] AST node."""
+    return [item.value for item in subscript_args(node) if isinstance(item, ast.Constant)]
+
+
+def subscript_args(node: ast.AST) -> list[ast.AST]:
+    """Return subscript arguments as a list."""
+    if isinstance(node, ast.Tuple):
+        return list(node.elts)
+    return [node]
+
+
+def error_envelope_schema(error: Mapping[str, Any], payload_name: str) -> dict[str, Any]:
+    """Build a domain error envelope schema."""
+    error_name = required_string(error, "name")
+    code = required_string(error, "code")
+    return {
+        "title": error_name + "Envelope",
+        "description": error.get("description", f"Domain error envelope for {error_name}."),
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["code", "error", "message", "payload"],
+        "properties": {
+            "code": {"type": "string", "enum": [code]},
+            "error": {"type": "string", "enum": [error_name]},
+            "message": {"type": "string"},
+            "payload": component_ref(payload_name),
+        },
+        "x-usecaseapi": {"kind": "errorEnvelope", "error": error_name},
+    }
+
+
+def domain_error_response(usecase: Mapping[str, Any]) -> dict[str, Any]:
+    """Build an OpenAPI response for declared domain errors."""
+    error_names = [*string_list(usecase.get("raises")), *string_list(usecase.get("known_errors"))]
+    errors_by_name = {required_string(error, "name"): error for error in manifest_errors(usecase)}
+    refs = [
+        component_ref(error_envelope_component_name(usecase, errors_by_name[name]))
+        for name in error_names
+        if name in errors_by_name
+    ]
+    return {
+        "description": f"Domain error raised by {required_string(usecase, 'name')}.",
+        "content": {"application/json": {"schema": {"oneOf": refs}}},
+    }
+
+
+def openapi_error_components(usecases: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    """Build x-usecaseapi error hierarchy metadata."""
+    errors: dict[str, Any] = {}
+    for usecase in usecases:
+        for error in manifest_errors(usecase):
+            error_name = required_string(error, "name")
+            component_key = error_component_name(usecase, error)
+            errors[component_key] = {
+                "name": error_name,
+                "code": required_string(error, "code"),
+                "abstract": error_name in string_list(usecase.get("raises")),
+                "base": string_or_default(error.get("base"), "UseCaseError"),
+                "payloadSchema": component_ref_path(error_payload_component_name(usecase, error)),
+                "envelopeSchema": component_ref_path(error_envelope_component_name(usecase, error)),
+                "bindings": {"python": {"class": error_name}},
+                "description": error.get("description"),
+            }
+            errors[component_key] = without_none(errors[component_key])
+    return errors
+
+
+def usecase_operation_path(usecase: Mapping[str, Any]) -> str:
+    """Return the v2 canonical OpenAPI path for a usecase call."""
+    name = required_string(usecase, "name")
+    version = required_int(usecase, "version")
+    return f"/_usecases/{name}/v{version}/call"
+
+
+def component_name(usecase: Mapping[str, Any], class_name_value: str) -> str:
+    """Return an OpenAPI component key friendly to code generators."""
+    prefix = "".join(
+        pascal_identifier(part) for part in required_string(usecase, "name").split(".")
+    )
+    return f"{prefix}V{required_int(usecase, 'version')}{class_name_value}"
+
+
+def error_component_name(usecase: Mapping[str, Any], error: Mapping[str, Any]) -> str:
+    """Return the x-usecaseapi error component key."""
+    return component_name(usecase, required_string(error, "name"))
+
+
+def error_payload_component_name(usecase: Mapping[str, Any], error: Mapping[str, Any]) -> str:
+    """Return the payload schema component key for an error."""
+    return component_name(usecase, required_string(error, "name") + "Payload")
+
+
+def error_envelope_component_name(usecase: Mapping[str, Any], error: Mapping[str, Any]) -> str:
+    """Return the envelope schema component key for an error."""
+    return component_name(usecase, required_string(error, "name") + "Envelope")
+
+
+def response_component_name(usecase: Mapping[str, Any]) -> str:
+    """Return the domain error response component key for a usecase."""
+    return component_name(usecase, "DomainError")
+
+
+def component_ref(name: str) -> dict[str, str]:
+    """Return an OpenAPI component reference."""
+    return {"$ref": component_ref_path(name)}
+
+
+def component_ref_path(name: str) -> str:
+    """Return an OpenAPI schema component reference path."""
+    return f"#/components/schemas/{name}"
+
+
+def operation_id(usecase: Mapping[str, Any]) -> str:
+    """Return a stable OpenAPI operationId."""
+    return (
+        required_string(usecase, "name").replace(".", "_")
+        + f"_v{required_int(usecase, 'version')}_call"
+    )
+
+
+def dependency_name(key: str) -> str:
+    """Return a readable dependency map key."""
+    name, _, _version = key.partition("@v")
+    return name.split(".")[-1]
+
+
+def response_description(usecase: Mapping[str, Any]) -> str:
+    """Return the success response description."""
+    output = required_string(usecase, "output")
+    return f"{output} result."
+
+
+def schema_kind(usecase: Mapping[str, Any], model_name: str) -> str:
+    """Return UseCaseAPI schema role metadata."""
+    if model_name == required_string(usecase, "input"):
+        return "input"
+    if model_name == required_string(usecase, "output"):
+        return "output"
+    return "model"
+
+
 def dump_manifest(manifest: Mapping[str, Any], path: str | Path) -> None:
     """Write a validated Manifest YAML file."""
     validate_manifest(manifest)
@@ -211,8 +720,38 @@ def load_manifest(path: str | Path) -> dict[str, Any]:
 
 def validate_manifest(manifest: Mapping[str, Any]) -> None:
     """Validate Manifest shape and UseCaseAPI-specific cross references."""
-    if manifest.get("kind") != MANIFEST_KIND:
-        raise ManifestError(f"manifest kind must be {MANIFEST_KIND!r}")
+    if manifest.get("kind") == LEGACY_MANIFEST_KIND:
+        validate_semantic_manifest(manifest)
+        return
+    if "kind" in manifest:
+        raise ManifestError(f"manifest kind must be {LEGACY_MANIFEST_KIND!r}")
+    validate_openapi_manifest(manifest)
+    semantic = semantic_from_openapi_manifest(manifest)
+    validate_semantic_manifest(semantic)
+
+
+def validate_openapi_manifest(manifest: Mapping[str, Any]) -> None:
+    """Validate the OpenAPI-level v2 Manifest shape."""
+    if manifest.get("openapi") != OPENAPI_VERSION:
+        raise ManifestError(f"manifest.openapi must be {OPENAPI_VERSION!r}")
+    info = required_mapping(manifest.get("info"), "info")
+    required_string(info, "title")
+    required_string(info, "version")
+    paths = manifest.get("paths")
+    components = manifest.get("components")
+    if not isinstance(paths, Mapping) and not isinstance(components, Mapping):
+        raise ManifestError("manifest must define OpenAPI paths or components")
+    extension = required_mapping(manifest.get("x-usecaseapi"), "x-usecaseapi")
+    if extension.get("version") != USECASEAPI_VERSION:
+        raise ManifestError(f"x-usecaseapi.version must be {USECASEAPI_VERSION!r}")
+    if extension.get("profile") != USECASEAPI_PROFILE:
+        raise ManifestError(f"x-usecaseapi.profile must be {USECASEAPI_PROFILE!r}")
+    if extension.get("manifestKind") != MANIFEST_PROFILE_KIND:
+        raise ManifestError(f"x-usecaseapi.manifestKind must be {MANIFEST_PROFILE_KIND!r}")
+
+
+def validate_semantic_manifest(manifest: Mapping[str, Any]) -> None:
+    """Validate normalized UseCaseAPI semantic metadata."""
     usecases = manifest.get("usecases")
     if not isinstance(usecases, list) or not usecases:
         raise ManifestError("manifest.usecases must be a non-empty list")
@@ -222,6 +761,336 @@ def validate_manifest(manifest: Mapping[str, Any]) -> None:
         if not isinstance(item, Mapping):
             raise ManifestError(f"usecases[{index}] must be a mapping")
         validate_usecase_manifest(item, seen_keys=seen_keys, index=index)
+
+
+def semantic_from_openapi_manifest(manifest: Mapping[str, Any]) -> dict[str, Any]:
+    """Normalize a v2 OpenAPI profile Manifest to UseCaseAPI semantic metadata."""
+    paths = required_mapping(manifest.get("paths"), "paths")
+    root_extension = required_mapping(manifest.get("x-usecaseapi"), "x-usecaseapi")
+    info = required_mapping(manifest.get("info"), "info")
+    usecases: list[dict[str, Any]] = []
+    for path, path_item in paths.items():
+        if not isinstance(path, str) or not isinstance(path_item, Mapping):
+            continue
+        operation = path_item.get("post")
+        if not isinstance(operation, Mapping):
+            continue
+        extension = operation.get("x-usecaseapi")
+        if not isinstance(extension, Mapping) or extension.get("kind") != "usecase":
+            continue
+        usecases.append(openapi_operation_to_usecase(path, operation, extension, manifest))
+
+    return {
+        "kind": LEGACY_MANIFEST_KIND,
+        "metadata": {"name": required_string(info, "title")},
+        "layout": semantic_layout(root_extension),
+        "usecases": sorted(usecases, key=lambda item: required_string(item, "key")),
+    }
+
+
+def semantic_layout(root_extension: Mapping[str, Any]) -> dict[str, Any]:
+    """Read v2 runtime roots into semantic layout metadata."""
+    runtimes = root_extension.get("runtimes")
+    python_runtime = {}
+    if isinstance(runtimes, Mapping):
+        runtime = runtimes.get("python")
+        if isinstance(runtime, Mapping):
+            python_runtime = dict(runtime)
+    roots = python_runtime.get("roots")
+    root_mapping = roots if isinstance(roots, Mapping) else {}
+    layout = {
+        "contracts_root": string_or_default(root_mapping.get("contracts"), "app/contracts"),
+        "implementations_root": string_or_default(
+            root_mapping.get("implementations"),
+            "app/usecases",
+        ),
+        "tests_root": string_or_default(root_mapping.get("tests"), "tests"),
+    }
+    package = python_runtime.get("package")
+    if isinstance(package, str) and package:
+        layout["package"] = package
+    return layout
+
+
+def openapi_operation_to_usecase(
+    path: str,
+    operation: Mapping[str, Any],
+    extension: Mapping[str, Any],
+    manifest: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Convert one v2 operation into semantic usecase metadata."""
+    name = required_string(extension, "name")
+    version = required_int(extension, "version")
+    key = string_or_default(extension.get("key"), f"{name}@v{version}")
+    lifecycle_value = extension.get("lifecycle")
+    lifecycle = lifecycle_value if isinstance(lifecycle_value, Mapping) else {}
+    input_value = required_mapping(extension.get("input"), "x-usecaseapi.input")
+    output_value = required_mapping(extension.get("output"), "x-usecaseapi.output")
+    errors_value = extension.get("errors")
+    errors = errors_value if isinstance(errors_value, Mapping) else {}
+    bindings_value = required_mapping(extension.get("bindings"), "x-usecaseapi.bindings")
+    python_binding = required_mapping(bindings_value.get("python"), "x-usecaseapi.bindings.python")
+    source = source_from_python_binding(python_binding)
+    usecase = {
+        "name": name,
+        "version": version,
+        "key": key,
+        "description": operation.get("description") or operation.get("summary"),
+        "stable": lifecycle.get("stability", "stable") == "stable",
+        "deprecated": bool(operation.get("deprecated", lifecycle.get("deprecated", False))),
+        "superseded_by": lifecycle.get("supersededBy"),
+        "tags": string_list(operation.get("tags")),
+        "protocol": {
+            "kind": PROTOCOL_KIND,
+            "signature": python_binding.get("signature"),
+        },
+        "source": source,
+        "input": required_string(input_value, "pythonName"),
+        "output": required_string(output_value, "pythonName"),
+        "models": models_from_components(manifest, name=name, version=version),
+        "errors": errors_from_components(manifest, name=name, version=version),
+        "raises": string_list(errors.get("raises")),
+        "known_errors": string_list(errors.get("known")),
+        "uses": uses_from_extension(extension),
+    }
+    expected_path = f"/_usecases/{name}/v{version}/call"
+    if path != expected_path:
+        raise ManifestError(f"usecase path must be {expected_path!r}")
+    return without_none(usecase)
+
+
+def source_from_python_binding(binding: Mapping[str, Any]) -> dict[str, Any]:
+    """Read Python source mapping from v2 binding metadata."""
+    contract = required_mapping(binding.get("contract"), "python.contract")
+    source = {
+        "contract_module": required_string(contract, "module"),
+        "protocol_class": required_string(contract, "protocolClass"),
+        "ref": required_string(contract, "ref"),
+    }
+    contract_file = contract.get("file")
+    if isinstance(contract_file, str) and contract_file:
+        source["contract_file"] = contract_file
+    implementation_value = binding.get("implementation")
+    if isinstance(implementation_value, Mapping):
+        implementation_class = implementation_value.get("class")
+        implementation_file = implementation_value.get("file")
+        if isinstance(implementation_class, str) and implementation_class:
+            source["implementation_class"] = implementation_class
+        if isinstance(implementation_file, str) and implementation_file:
+            source["implementation_file"] = implementation_file
+    return source
+
+
+def models_from_components(
+    manifest: Mapping[str, Any],
+    *,
+    name: str,
+    version: int,
+) -> list[dict[str, Any]]:
+    """Read model metadata from OpenAPI component schemas."""
+    schemas = component_schemas(manifest)
+    prefix = component_prefix(name, version)
+    models: list[dict[str, Any]] = []
+    for component_key, schema_value in schemas.items():
+        if not component_key.startswith(prefix) or not isinstance(schema_value, Mapping):
+            continue
+        extension = schema_value.get("x-usecaseapi")
+        if not isinstance(extension, Mapping):
+            continue
+        if extension.get("kind") not in {"model", "input", "output"}:
+            continue
+        bindings = extension.get("bindings")
+        python = bindings.get("python") if isinstance(bindings, Mapping) else None
+        class_name_value = python.get("class") if isinstance(python, Mapping) else None
+        model_name = (
+            class_name_value if isinstance(class_name_value, str) else schema_value.get("title")
+        )
+        if not isinstance(model_name, str) or not model_name:
+            raise ManifestError(f"schema {component_key!r} must declare a Python class")
+        models.append(schema_to_model(model_name, schema_value))
+    return models
+
+
+def schema_to_model(model_name: str, schema: Mapping[str, Any]) -> dict[str, Any]:
+    """Convert an object schema component into semantic model metadata."""
+    properties_value = schema.get("properties", {})
+    properties = properties_value if isinstance(properties_value, Mapping) else {}
+    required_names = set(string_list(schema.get("required")))
+    fields: list[dict[str, Any]] = []
+    for field_name, field_schema_value in properties.items():
+        if not isinstance(field_name, str) or not isinstance(field_schema_value, Mapping):
+            continue
+        field = {
+            "name": field_name,
+            "type": schema_to_type_expr(field_schema_value),
+            "required": field_name in required_names,
+        }
+        description = field_schema_value.get("description")
+        if isinstance(description, str) and description:
+            field["description"] = description
+        fields.append(field)
+    return without_none(
+        {
+            "name": model_name,
+            "description": schema.get("description"),
+            "fields": fields,
+        }
+    )
+
+
+def errors_from_components(
+    manifest: Mapping[str, Any],
+    *,
+    name: str,
+    version: int,
+) -> list[dict[str, Any]]:
+    """Read domain error hierarchy metadata from x-usecaseapi components."""
+    root_extension = required_mapping(manifest.get("x-usecaseapi"), "x-usecaseapi")
+    components_value = root_extension.get("components")
+    components = components_value if isinstance(components_value, Mapping) else {}
+    errors_value = components.get("errors")
+    errors = errors_value if isinstance(errors_value, Mapping) else {}
+    prefix = component_prefix(name, version)
+    result: list[dict[str, Any]] = []
+    for key, metadata in errors.items():
+        if (
+            not isinstance(key, str)
+            or not key.startswith(prefix)
+            or not isinstance(metadata, Mapping)
+        ):
+            continue
+        error_name = required_string(metadata, "name")
+        payload_ref = required_string(metadata, "payloadSchema")
+        payload_schema = schema_by_ref(manifest, payload_ref)
+        error = {
+            "name": error_name,
+            "base": required_string(metadata, "base"),
+            "code": required_string(metadata, "code"),
+            "description": metadata.get("description"),
+            "fields": schema_to_model(error_name + "Payload", payload_schema)["fields"],
+        }
+        result.append(without_none(error))
+    return result
+
+
+def uses_from_extension(extension: Mapping[str, Any]) -> list[str]:
+    """Read declared dependency keys from operation extension metadata."""
+    uses_value = extension.get("uses", {})
+    if not isinstance(uses_value, Mapping):
+        raise ManifestError("x-usecaseapi.uses must be a mapping")
+    uses: list[str] = []
+    for metadata in uses_value.values():
+        if not isinstance(metadata, Mapping):
+            raise ManifestError("x-usecaseapi.uses entries must be mappings")
+        uses.append(required_string(metadata, "key"))
+    return sorted(uses)
+
+
+def schema_to_type_expr(schema: Mapping[str, Any]) -> str:
+    """Convert a JSON Schema fragment to a supported Python type expression."""
+    ref = schema.get("$ref")
+    if isinstance(ref, str):
+        return class_name_from_component_ref(ref)
+    enum = schema.get("enum")
+    if isinstance(enum, list):
+        return "Literal[" + ", ".join(repr(item) for item in enum) + "]"
+    any_of = schema.get("anyOf")
+    if isinstance(any_of, list):
+        parts = [schema_to_type_expr(item) for item in any_of if isinstance(item, Mapping)]
+        return " | ".join(parts)
+    schema_type = schema.get("type")
+    if schema_type == "string":
+        format_value = schema.get("format")
+        formats = {
+            "uuid": "UUID",
+            "date": "date",
+            "date-time": "datetime",
+            "decimal": "Decimal",
+        }
+        return formats.get(format_value, "str") if isinstance(format_value, str) else "str"
+    if schema_type == "array":
+        return array_schema_to_type_expr(schema)
+    if schema_type == "object":
+        return object_schema_to_type_expr(schema)
+    return primitive_schema_to_type_expr(schema_type)
+
+
+def primitive_schema_to_type_expr(schema_type: object) -> str:
+    """Convert a primitive JSON Schema type to a Python type expression."""
+    if not isinstance(schema_type, str):
+        return "Any"
+    primitives = {
+        "string": "str",
+        "integer": "int",
+        "number": "float",
+        "boolean": "bool",
+        "null": "None",
+    }
+    return primitives.get(schema_type, "Any")
+
+
+def array_schema_to_type_expr(schema: Mapping[str, Any]) -> str:
+    """Convert an array schema to a Python type expression."""
+    prefix_items = schema.get("prefixItems")
+    if isinstance(prefix_items, list) and prefix_items:
+        return (
+            "tuple["
+            + ", ".join(
+                schema_to_type_expr(item) for item in prefix_items if isinstance(item, Mapping)
+            )
+            + "]"
+        )
+    items = schema.get("items")
+    item_type = schema_to_type_expr(items) if isinstance(items, Mapping) else "Any"
+    if schema.get("uniqueItems") is True:
+        return f"set[{item_type}]"
+    return f"list[{item_type}]"
+
+
+def object_schema_to_type_expr(schema: Mapping[str, Any]) -> str:
+    """Convert an object schema to a Python type expression."""
+    additional = schema.get("additionalProperties")
+    value_type = schema_to_type_expr(additional) if isinstance(additional, Mapping) else "Any"
+    return f"dict[str, {value_type}]"
+
+
+def component_schemas(manifest: Mapping[str, Any]) -> Mapping[str, Any]:
+    """Return OpenAPI component schemas."""
+    components = required_mapping(manifest.get("components"), "components")
+    schemas = required_mapping(components.get("schemas"), "components.schemas")
+    return schemas
+
+
+def schema_by_ref(manifest: Mapping[str, Any], ref: str) -> Mapping[str, Any]:
+    """Resolve a local component schema reference."""
+    prefix = "#/components/schemas/"
+    if not ref.startswith(prefix):
+        raise ManifestError(f"unsupported schema reference {ref!r}")
+    schema = component_schemas(manifest).get(ref.removeprefix(prefix))
+    return required_mapping(schema, ref)
+
+
+def class_name_from_component_ref(ref: str) -> str:
+    """Infer the Python class name from a local schema component reference."""
+    component_key = ref.rsplit("/", maxsplit=1)[-1]
+    marker = "V"
+    version_index = component_key.rfind(marker)
+    if version_index == -1:
+        return component_key
+    suffix = component_key[version_index + 1 :]
+    while suffix and suffix[0].isdigit():
+        suffix = suffix[1:]
+    return suffix or component_key
+
+
+def component_prefix(name: str, version: int) -> str:
+    """Return the component key prefix for a usecase."""
+    return "".join(pascal_identifier(part) for part in name.split(".")) + f"V{version}"
+
+
+def pascal_identifier(value: str) -> str:
+    """Return a PascalCase identifier fragment from snake_case or dotted names."""
+    return "".join(part.capitalize() for part in value.split("_"))
 
 
 def scaffold_from_manifest(
@@ -1092,6 +1961,17 @@ def manifest_fields(container: Mapping[str, Any]) -> list[Mapping[str, Any]]:
 
 def usecase_items(manifest: Mapping[str, Any]) -> list[Mapping[str, Any]]:
     """Read Manifest usecase mappings."""
+    if manifest.get("kind") == LEGACY_MANIFEST_KIND or "usecases" in manifest:
+        value = manifest.get("usecases")
+    else:
+        value = semantic_from_openapi_manifest(manifest).get("usecases")
+    if not isinstance(value, list):
+        raise ManifestError("manifest.usecases must be a list")
+    return [required_mapping(item, "usecase") for item in value]
+
+
+def usecase_items_from_semantic(manifest: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    """Read already-normalized semantic usecase mappings."""
     value = manifest.get("usecases")
     if not isinstance(value, list):
         raise ManifestError("manifest.usecases must be a list")
@@ -1570,7 +2450,7 @@ def semantic_manifest(manifest: Mapping[str, Any]) -> dict[str, Any]:
     """Return the semantic subset used for sync comparison."""
     validate_manifest(manifest)
     return {
-        "kind": MANIFEST_KIND,
+        "kind": LEGACY_MANIFEST_KIND,
         "usecases": [
             {
                 "name": required_string(item, "name"),
@@ -1596,6 +2476,18 @@ def semantic_manifest(manifest: Mapping[str, Any]) -> dict[str, Any]:
 
 def project_name(manifest: Mapping[str, Any]) -> str | None:
     """Read Manifest project name when present."""
+    if manifest.get("openapi") == OPENAPI_VERSION:
+        info = manifest.get("info")
+        name = info.get("title") if isinstance(info, Mapping) else None
+    else:
+        name = project_name_from_semantic(manifest)
+    if isinstance(name, str):
+        return name
+    return None
+
+
+def project_name_from_semantic(manifest: Mapping[str, Any]) -> str | None:
+    """Read semantic Manifest project name when present."""
     metadata = manifest.get("metadata")
     name = metadata.get("name") if isinstance(metadata, Mapping) else None
     if isinstance(name, str):
@@ -1605,7 +2497,10 @@ def project_name(manifest: Mapping[str, Any]) -> str | None:
 
 def package_name(manifest: Mapping[str, Any]) -> str | None:
     """Read Manifest package name when present."""
-    layout = manifest.get("layout")
+    if manifest.get("openapi") == OPENAPI_VERSION:
+        layout = semantic_from_openapi_manifest(manifest).get("layout")
+    else:
+        layout = manifest.get("layout")
     package = layout.get("package") if isinstance(layout, Mapping) else None
     if isinstance(package, str):
         return package

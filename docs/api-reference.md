@@ -72,7 +72,7 @@ Creates a YAML-friendly Manifest catalog from a registered `UseCaseAPI` instance
 
 ## `load_manifest(path)` / `dump_manifest(manifest, path)`
 
-Loads and writes validated `.ucase.yaml` Manifest files.
+Loads and writes validated `usecaseapi.yaml` Manifest files.
 
 ## `validate_manifest(manifest)`
 

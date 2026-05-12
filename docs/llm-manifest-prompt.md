@@ -2,7 +2,7 @@
 
 Use this prompt when a conversation has produced rough requirements and you want an
 LLM to converge them into a UseCaseAPI Manifest. The intended output is a
-reviewable `usecaseapi.ucase.yaml` that can be validated and used to generate
+reviewable `usecaseapi.yaml` that can be validated and used to generate
 initial Python contract, implementation, and pytest skeletons.
 
 ## Prompt
@@ -16,33 +16,33 @@ manager, or DDD architecture generator. It defines the public application API
 surface for usecases: stable name, version, input model, output model, domain
 errors, declared usecase dependencies, and source file locations.
 
-Your goal is to produce a complete `usecaseapi.ucase.yaml` for the requested
-usecases. The file must follow the UseCaseAPI Manifest v1 syntax below and target
-the v1.1 scaffold layout:
+Your goal is to produce a complete `usecaseapi.yaml` for the requested
+usecases. The file must follow the UseCaseAPI Manifest v2 OpenAPI profile syntax
+and target the scaffold layout:
 
 {root}/{package}/usecases/{usecase}/v{version}/{usecase}_contract.py
 {root}/{package}/usecases/{usecase}/v{version}/{usecase}_usecase.py
 
 Use these source conventions:
 
-- `layout.package`: the Python import package and filesystem package that owns the usecases.
-- `layout.contracts_root`: usually `{root}/{package}`.
-- `layout.implementations_root`: usually `{root}`.
-- `layout.tests_root`: usually `tests`.
+- `x-usecaseapi.runtimes.python.package`: the Python import package and filesystem package that owns the usecases.
+- `x-usecaseapi.runtimes.python.roots.contracts`: usually `{root}/{package}`.
+- `x-usecaseapi.runtimes.python.roots.implementations`: usually `{root}`.
+- `x-usecaseapi.runtimes.python.roots.tests`: usually `tests`.
 - `name`: `{package}.{usecase}` unless a narrower package/module decision is
   explicitly provided.
 - `key`: `{name}@v{version}`.
-- `source.contract_module`:
+- operation `x-usecaseapi.bindings.python.contract.module`:
   `{package}.usecases.{usecase}.v{version}.{usecase}_contract`
-- `source.implementation_file`:
+- operation `x-usecaseapi.bindings.python.implementation.file`:
   `{root}/{package}/usecases/{usecase}/v{version}/{usecase}_usecase.py`
-- `source.contract_file`:
+- operation `x-usecaseapi.bindings.python.contract.file`:
   `{root}/{package}/usecases/{usecase}/v{version}/{usecase}_contract.py`
-- `source.protocol_class`: PascalCase usecase name without the `UseCase` suffix.
-- `source.implementation_class`: PascalCase usecase name plus `UseCase`.
-- `source.ref`: upper snake case usecase name plus `_USECASE`.
-- `input`: PascalCase usecase name plus `UseCaseInput`.
-- `output`: PascalCase usecase name plus `UseCaseOutput`.
+- operation `x-usecaseapi.bindings.python.contract.protocolClass`: PascalCase usecase name without the `UseCase` suffix.
+- operation `x-usecaseapi.bindings.python.implementation.class`: PascalCase usecase name plus `UseCase`.
+- operation `x-usecaseapi.bindings.python.contract.ref`: upper snake case usecase name plus `_USECASE`.
+- operation `x-usecaseapi.input.pythonName`: PascalCase usecase name plus `UseCaseInput`.
+- operation `x-usecaseapi.output.pythonName`: PascalCase usecase name plus `UseCaseOutput`.
 
 Every usecase must include:
 
@@ -66,15 +66,15 @@ Supported field type expressions:
 
 Domain errors:
 
-- Use `errors` for structured domain exceptions.
-- Use `raises` for the public catch boundary.
-- Use `known_errors` for documented leaf errors.
+- Use root `x-usecaseapi.components.errors` for structured domain exceptions.
+- Use operation `x-usecaseapi.errors.raises` for the public catch boundary.
+- Use operation `x-usecaseapi.errors.known` for documented leaf errors.
 - Error `code` values must live under the usecase name, for example
   `commerce.place_order.inventory_shortage`.
 
 Dependency edges:
 
-- Use `uses` only for declared same-process usecase calls.
+- Use operation `x-usecaseapi.uses` only for declared same-process usecase calls.
 - Do not put database sessions, repositories, HTTP clients, framework objects, or
   transaction details into `uses`.
 - If one usecase needs another usecase in the same business capability, keep them
@@ -102,69 +102,126 @@ Do not silently invent business fields, dependency edges, or error semantics.
 Output format:
 
 1. `Questions` section only when clarification is required.
-2. `usecaseapi.ucase.yaml` section containing one YAML code block.
+2. `usecaseapi.yaml` section containing one YAML code block.
 3. `Assumptions` section only for decisions that were not directly stated.
 4. `Next Commands` section with:
 
 ```bash
-usecaseapi manifest validate usecaseapi.ucase.yaml
-usecaseapi manifest scaffold usecaseapi.ucase.yaml --root .
+usecaseapi manifest validate usecaseapi.yaml
+usecaseapi manifest scaffold usecaseapi.yaml --root .
 ```
 
-Manifest syntax:
+Minimal Manifest shape:
 
 ```yaml
-kind: usecaseapi.manifest/v1
-metadata:
-  name: project-name
-runtime:
-  language: python
-  python: '>=3.12,<3.15'
-  protocol: usecaseapi.inprocess.async_call/v1
-layout:
-  contracts_root: src/package_name
-  implementations_root: src
-  tests_root: tests
-  package: package_name
-usecases:
-  - name: package_name.usecase_name
-    version: 1
-    key: package_name.usecase_name@v1
-    description: One sentence describing the usecase behavior and boundary.
-    stable: true
-    deprecated: false
-    tags: []
-    protocol:
-      kind: usecaseapi.inprocess.async_call/v1
-      signature: 'async __call__(input: UsecaseNameUseCaseInput) -> UsecaseNameUseCaseOutput'
-    source:
-      contract_module: package_name.usecases.usecase_name.v1.usecase_name_contract
-      protocol_class: UsecaseName
-      implementation_class: UsecaseNameUseCase
-      implementation_file: src/package_name/usecases/usecase_name/v1/usecase_name_usecase.py
-      ref: USECASE_NAME_USECASE
-      contract_file: src/package_name/usecases/usecase_name/v1/usecase_name_contract.py
-    input: UsecaseNameUseCaseInput
-    output: UsecaseNameUseCaseOutput
-    models:
-      - name: UsecaseNameUseCaseInput
-        description: One sentence describing caller input.
-        fields:
-          - name: example_id
-            type: str
-            required: true
-            description: Stable identifier for the example entity.
-      - name: UsecaseNameUseCaseOutput
-        description: One sentence describing the result.
-        fields:
-          - name: accepted
-            type: bool
-            required: true
-            description: Whether the request was accepted.
-    errors: []
-    raises: []
-    known_errors: []
-    uses: []
+openapi: 3.1.0
+info:
+  title: example
+  version: 1.0.0
+paths:
+  /_usecases/package_name.usecase_name/v1/call:
+    post:
+      operationId: package_name_usecase_name_v1_call
+      summary: One sentence describing the usecase behavior and boundary.
+      description: One sentence describing the usecase behavior and boundary.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PackageNameUsecaseNameV1UsecaseNameUseCaseInput"
+      responses:
+        "200":
+          description: UsecaseNameUseCaseOutput result.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PackageNameUsecaseNameV1UsecaseNameUseCaseOutput"
+      x-usecaseapi:
+        kind: usecase
+        key: package_name.usecase_name@v1
+        name: package_name.usecase_name
+        version: 1
+        action: call
+        lifecycle:
+          stability: stable
+          deprecated: false
+        protocol: usecaseapi.inprocess.async_call.v1
+        input:
+          pythonName: UsecaseNameUseCaseInput
+          schema: "#/components/schemas/PackageNameUsecaseNameV1UsecaseNameUseCaseInput"
+        output:
+          pythonName: UsecaseNameUseCaseOutput
+          schema: "#/components/schemas/PackageNameUsecaseNameV1UsecaseNameUseCaseOutput"
+        errors:
+          raises: []
+          known: []
+        uses: {}
+        bindings:
+          python:
+            signature: "async __call__(input: UsecaseNameUseCaseInput) -> UsecaseNameUseCaseOutput"
+            contract:
+              module: package_name.usecases.usecase_name.v1.usecase_name_contract
+              file: src/package_name/usecases/usecase_name/v1/usecase_name_contract.py
+              protocolClass: UsecaseName
+              ref: USECASE_NAME_USECASE
+            implementation:
+              class: UsecaseNameUseCase
+              file: src/package_name/usecases/usecase_name/v1/usecase_name_usecase.py
+components:
+  schemas:
+    PackageNameUsecaseNameV1UsecaseNameUseCaseInput:
+      title: UsecaseNameUseCaseInput
+      type: object
+      additionalProperties: false
+      required:
+        - example_id
+      properties:
+        example_id:
+          type: string
+          description: Stable identifier for the example entity.
+      x-usecaseapi:
+        kind: input
+        bindings:
+          python:
+            class: UsecaseNameUseCaseInput
+    PackageNameUsecaseNameV1UsecaseNameUseCaseOutput:
+      title: UsecaseNameUseCaseOutput
+      type: object
+      additionalProperties: false
+      required:
+        - accepted
+      properties:
+        accepted:
+          type: boolean
+          description: Whether the request was accepted.
+      x-usecaseapi:
+        kind: output
+        bindings:
+          python:
+            class: UsecaseNameUseCaseOutput
+x-usecaseapi:
+  version: 3.1.0
+  profile: usecaseapi.openapi
+  manifestKind: usecaseapi.openapi.profile/3.1.0
+  runtimes:
+    python:
+      language: python
+      version: ">=3.12,<3.15"
+      package: package_name
+      roots:
+        contracts: src/package_name
+        implementations: src
+        tests: tests
+  protocols:
+    usecaseapi.inprocess.async_call.v1:
+      type: inprocess
+      interaction: requestReply
+      action: call
+      async: true
+      serialization: none
+  components:
+    errors: {}
 ```
 ````
 
@@ -173,13 +230,13 @@ usecases:
 After the LLM produces YAML:
 
 ```bash
-usecaseapi manifest validate usecaseapi.ucase.yaml
-usecaseapi manifest scaffold usecaseapi.ucase.yaml --root .
+usecaseapi manifest validate usecaseapi.yaml
+usecaseapi manifest scaffold usecaseapi.yaml --root .
 ```
 
 If code already exists, export and compare:
 
 ```bash
-usecaseapi manifest export composition:usecases --output usecaseapi.ucase.yaml
-usecaseapi manifest check-sync composition:usecases usecaseapi.ucase.yaml
+usecaseapi manifest export composition:usecases --output usecaseapi.yaml
+usecaseapi manifest check-sync composition:usecases usecaseapi.yaml
 ```

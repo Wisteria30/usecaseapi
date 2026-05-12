@@ -1,0 +1,469 @@
+openapi: 3.1.0
+info:
+  title: basic
+  version: 1.0.0
+  description: UseCaseAPI manifest for same-process application usecases.
+  license:
+    name: MIT
+    identifier: MIT
+jsonSchemaDialect: https://json-schema.org/draft/2020-12/schema
+servers:
+- url: http://localhost
+  description: Optional UseCaseAPI HTTP adapter base URL. Native UseCaseAPI calls are same-process and
+    do not require this transport.
+security: []
+tags: []
+paths:
+  /_usecases/commerce.check_availability/v1/call:
+    post:
+      operationId: commerce_check_availability_v1_call
+      tags: []
+      summary: Checks available inventory inside the commerce package.
+      description: Checks available inventory inside the commerce package.
+      deprecated: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CommerceCheckAvailabilityV1CheckAvailabilityUseCaseInput'
+      responses:
+        '200':
+          description: CheckAvailabilityUseCaseOutput result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommerceCheckAvailabilityV1CheckAvailabilityUseCaseOutput'
+      x-usecaseapi:
+        kind: usecase
+        key: commerce.check_availability@v1
+        name: commerce.check_availability
+        version: 1
+        action: call
+        lifecycle:
+          stability: stable
+          deprecated: false
+        protocol: usecaseapi.inprocess.async_call.v1
+        semantics:
+          kind: command
+          sideEffects: true
+          idempotent: false
+          cacheable: false
+        context:
+          source: runtime
+          required: false
+        input:
+          pythonName: CheckAvailabilityUseCaseInput
+          schema: '#/components/schemas/CommerceCheckAvailabilityV1CheckAvailabilityUseCaseInput'
+        output:
+          pythonName: CheckAvailabilityUseCaseOutput
+          schema: '#/components/schemas/CommerceCheckAvailabilityV1CheckAvailabilityUseCaseOutput'
+        errors:
+          raises: []
+          known: []
+        bindings:
+          python:
+            signature: 'async __call__(input: CheckAvailabilityUseCaseInput) -> CheckAvailabilityUseCaseOutput'
+            contract:
+              module: commerce.usecases.check_availability.v1.check_availability_contract
+              protocolClass: CheckAvailability
+              ref: CHECK_AVAILABILITY_USECASE
+              file: src/commerce/usecases/check_availability/v1/check_availability_contract.py
+            implementation:
+              class: CheckAvailabilityUseCase
+              file: src/commerce/usecases/check_availability/v1/check_availability_usecase.py
+  /_usecases/commerce.checkout/v1/call:
+    post:
+      operationId: commerce_checkout_v1_call
+      tags: []
+      summary: Workflow-style usecase that composes other usecases in-process.
+      description: Workflow-style usecase that composes other usecases in-process.
+      deprecated: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CommerceCheckoutV1CheckoutUseCaseInput'
+      responses:
+        '200':
+          description: CheckoutUseCaseOutput result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommerceCheckoutV1CheckoutUseCaseOutput'
+      x-usecaseapi:
+        kind: usecase
+        key: commerce.checkout@v1
+        name: commerce.checkout
+        version: 1
+        action: call
+        lifecycle:
+          stability: stable
+          deprecated: false
+        protocol: usecaseapi.inprocess.async_call.v1
+        semantics:
+          kind: command
+          sideEffects: true
+          idempotent: false
+          cacheable: false
+        context:
+          source: runtime
+          required: false
+        input:
+          pythonName: CheckoutUseCaseInput
+          schema: '#/components/schemas/CommerceCheckoutV1CheckoutUseCaseInput'
+        output:
+          pythonName: CheckoutUseCaseOutput
+          schema: '#/components/schemas/CommerceCheckoutV1CheckoutUseCaseOutput'
+        errors:
+          raises: []
+          known: []
+        uses:
+          place_order:
+            key: commerce.place_order@v1
+            required: true
+        bindings:
+          python:
+            signature: 'async __call__(input: CheckoutUseCaseInput) -> CheckoutUseCaseOutput'
+            contract:
+              module: commerce.usecases.checkout.v1.checkout_contract
+              protocolClass: Checkout
+              ref: CHECKOUT_USECASE
+              file: src/commerce/usecases/checkout/v1/checkout_contract.py
+            implementation:
+              class: CheckoutUseCase
+              file: src/commerce/usecases/checkout/v1/checkout_usecase.py
+  /_usecases/commerce.place_order/v1/call:
+    post:
+      operationId: commerce_place_order_v1_call
+      tags: []
+      summary: Creates an order after inventory has been confirmed.
+      description: Creates an order after inventory has been confirmed.
+      deprecated: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CommercePlaceOrderV1PlaceOrderUseCaseInput'
+      responses:
+        '200':
+          description: PlaceOrderUseCaseOutput result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommercePlaceOrderV1PlaceOrderUseCaseOutput'
+        default:
+          $ref: '#/components/responses/CommercePlaceOrderV1DomainError'
+      x-usecaseapi:
+        kind: usecase
+        key: commerce.place_order@v1
+        name: commerce.place_order
+        version: 1
+        action: call
+        lifecycle:
+          stability: stable
+          deprecated: false
+        protocol: usecaseapi.inprocess.async_call.v1
+        semantics:
+          kind: command
+          sideEffects: true
+          idempotent: false
+          cacheable: false
+        context:
+          source: runtime
+          required: false
+        input:
+          pythonName: PlaceOrderUseCaseInput
+          schema: '#/components/schemas/CommercePlaceOrderV1PlaceOrderUseCaseInput'
+        output:
+          pythonName: PlaceOrderUseCaseOutput
+          schema: '#/components/schemas/CommercePlaceOrderV1PlaceOrderUseCaseOutput'
+        errors:
+          raises:
+          - PlaceOrderError
+          known:
+          - InventoryShortage
+        uses:
+          check_availability:
+            key: commerce.check_availability@v1
+            required: true
+        bindings:
+          python:
+            signature: 'async __call__(input: PlaceOrderUseCaseInput) -> PlaceOrderUseCaseOutput'
+            contract:
+              module: commerce.usecases.place_order.v1.place_order_contract
+              protocolClass: PlaceOrder
+              ref: PLACE_ORDER_USECASE
+              file: src/commerce/usecases/place_order/v1/place_order_contract.py
+            implementation:
+              class: PlaceOrderUseCase
+              file: src/commerce/usecases/place_order/v1/place_order_usecase.py
+components:
+  schemas:
+    CommerceCheckAvailabilityV1CheckAvailabilityUseCaseInput:
+      title: CheckAvailabilityUseCaseInput
+      description: Input required to check inventory availability.
+      type: object
+      additionalProperties: false
+      required:
+      - sku_id
+      - quantity
+      properties:
+        sku_id:
+          type: string
+        quantity:
+          type: integer
+      x-usecaseapi:
+        kind: input
+        canonicalName: commerce.check_availability.v1.CheckAvailabilityUseCaseInput
+        bindings:
+          python:
+            class: CheckAvailabilityUseCaseInput
+    CommerceCheckAvailabilityV1CheckAvailabilityUseCaseOutput:
+      title: CheckAvailabilityUseCaseOutput
+      description: Inventory availability result.
+      type: object
+      additionalProperties: false
+      required:
+      - available
+      - ok
+      properties:
+        available:
+          type: integer
+        ok:
+          type: boolean
+      x-usecaseapi:
+        kind: output
+        canonicalName: commerce.check_availability.v1.CheckAvailabilityUseCaseOutput
+        bindings:
+          python:
+            class: CheckAvailabilityUseCaseOutput
+    CommerceCheckoutV1CheckoutUseCaseInput:
+      title: CheckoutUseCaseInput
+      description: Input required to run checkout.
+      type: object
+      additionalProperties: false
+      required:
+      - user_id
+      - sku_id
+      - quantity
+      properties:
+        user_id:
+          type: string
+        sku_id:
+          type: string
+        quantity:
+          type: integer
+      x-usecaseapi:
+        kind: input
+        canonicalName: commerce.checkout.v1.CheckoutUseCaseInput
+        bindings:
+          python:
+            class: CheckoutUseCaseInput
+    CommerceCheckoutV1CheckoutUseCaseOutput:
+      title: CheckoutUseCaseOutput
+      description: Checkout result returned to callers.
+      type: object
+      additionalProperties: false
+      required:
+      - order_id
+      properties:
+        order_id:
+          type: string
+      x-usecaseapi:
+        kind: output
+        canonicalName: commerce.checkout.v1.CheckoutUseCaseOutput
+        bindings:
+          python:
+            class: CheckoutUseCaseOutput
+    CommercePlaceOrderV1Item:
+      title: Item
+      description: Order item requested by the caller.
+      type: object
+      additionalProperties: false
+      required:
+      - sku_id
+      - quantity
+      properties:
+        sku_id:
+          type: string
+        quantity:
+          type: integer
+      x-usecaseapi:
+        kind: model
+        canonicalName: commerce.place_order.v1.Item
+        bindings:
+          python:
+            class: Item
+    CommercePlaceOrderV1PlaceOrderUseCaseInput:
+      title: PlaceOrderUseCaseInput
+      description: Input required to place an order.
+      type: object
+      additionalProperties: false
+      required:
+      - user_id
+      - item
+      properties:
+        user_id:
+          type: string
+        item:
+          $ref: '#/components/schemas/CommercePlaceOrderV1Item'
+      x-usecaseapi:
+        kind: input
+        canonicalName: commerce.place_order.v1.PlaceOrderUseCaseInput
+        bindings:
+          python:
+            class: PlaceOrderUseCaseInput
+    CommercePlaceOrderV1PlaceOrderUseCaseOutput:
+      title: PlaceOrderUseCaseOutput
+      description: Accepted order result.
+      type: object
+      additionalProperties: false
+      required:
+      - order_id
+      - status
+      properties:
+        order_id:
+          type: string
+        status:
+          enum:
+          - accepted
+      x-usecaseapi:
+        kind: output
+        canonicalName: commerce.place_order.v1.PlaceOrderUseCaseOutput
+        bindings:
+          python:
+            class: PlaceOrderUseCaseOutput
+    CommercePlaceOrderV1PlaceOrderErrorPayload:
+      title: PlaceOrderErrorPayload
+      description: Base error for place order failures.
+      type: object
+      additionalProperties: false
+      required: []
+    CommercePlaceOrderV1PlaceOrderErrorEnvelope:
+      title: PlaceOrderErrorEnvelope
+      description: Base error for place order failures.
+      type: object
+      additionalProperties: false
+      required:
+      - code
+      - error
+      - message
+      - payload
+      properties:
+        code:
+          type: string
+          enum:
+          - commerce.place_order
+        error:
+          type: string
+          enum:
+          - PlaceOrderError
+        message:
+          type: string
+        payload:
+          $ref: '#/components/schemas/CommercePlaceOrderV1PlaceOrderErrorPayload'
+      x-usecaseapi:
+        kind: errorEnvelope
+        error: PlaceOrderError
+    CommercePlaceOrderV1InventoryShortagePayload:
+      title: InventoryShortagePayload
+      description: Raised when requested inventory is unavailable.
+      type: object
+      additionalProperties: false
+      required:
+      - sku_id
+      - requested
+      - available
+      properties:
+        sku_id:
+          type: string
+        requested:
+          type: integer
+        available:
+          type: integer
+    CommercePlaceOrderV1InventoryShortageEnvelope:
+      title: InventoryShortageEnvelope
+      description: Raised when requested inventory is unavailable.
+      type: object
+      additionalProperties: false
+      required:
+      - code
+      - error
+      - message
+      - payload
+      properties:
+        code:
+          type: string
+          enum:
+          - commerce.place_order.inventory_shortage
+        error:
+          type: string
+          enum:
+          - InventoryShortage
+        message:
+          type: string
+        payload:
+          $ref: '#/components/schemas/CommercePlaceOrderV1InventoryShortagePayload'
+      x-usecaseapi:
+        kind: errorEnvelope
+        error: InventoryShortage
+  responses:
+    CommercePlaceOrderV1DomainError:
+      description: Domain error raised by commerce.place_order.
+      content:
+        application/json:
+          schema:
+            oneOf:
+            - $ref: '#/components/schemas/CommercePlaceOrderV1PlaceOrderErrorEnvelope'
+            - $ref: '#/components/schemas/CommercePlaceOrderV1InventoryShortageEnvelope'
+x-usecaseapi:
+  version: 3.1.0
+  profile: usecaseapi.openapi
+  manifestKind: usecaseapi.openapi.profile/3.1.0
+  defaults:
+    runtime: python
+    protocol: usecaseapi.inprocess.async_call.v1
+  runtimes:
+    python:
+      language: python
+      version: '>=3.12,<3.15'
+      roots:
+        contracts: src/commerce
+        implementations: src
+        tests: tests
+      package: commerce
+  protocols:
+    usecaseapi.inprocess.async_call.v1:
+      type: inprocess
+      interaction: requestReply
+      action: call
+      async: true
+      serialization: none
+      description: Same-process async request/reply usecase call.
+  components:
+    errors:
+      CommercePlaceOrderV1PlaceOrderError:
+        name: PlaceOrderError
+        code: commerce.place_order
+        abstract: true
+        base: UseCaseError
+        payloadSchema: '#/components/schemas/CommercePlaceOrderV1PlaceOrderErrorPayload'
+        envelopeSchema: '#/components/schemas/CommercePlaceOrderV1PlaceOrderErrorEnvelope'
+        bindings:
+          python:
+            class: PlaceOrderError
+        description: Base error for place order failures.
+      CommercePlaceOrderV1InventoryShortage:
+        name: InventoryShortage
+        code: commerce.place_order.inventory_shortage
+        abstract: false
+        base: PlaceOrderError
+        payloadSchema: '#/components/schemas/CommercePlaceOrderV1InventoryShortagePayload'
+        envelopeSchema: '#/components/schemas/CommercePlaceOrderV1InventoryShortageEnvelope'
+        bindings:
+          python:
+            class: InventoryShortage
+        description: Raised when requested inventory is unavailable.

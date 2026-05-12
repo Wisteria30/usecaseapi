@@ -7,10 +7,10 @@ This example demonstrates:
 - explicit composition in `src/composition.py`;
 - a workflow-like usecase that calls another usecase through `Caller`;
 - declared dependency edges using `uses=`;
-- a generated Manifest catalog in `usecaseapi.ucase.yaml`.
+- a generated Manifest catalog in `usecaseapi.yaml`.
 
 Regenerate the Manifest from the composed API:
 
 ```bash
-PYTHONPATH=src uv run usecaseapi manifest export composition:usecases --output usecaseapi.ucase.yaml
+PYTHONPATH=src uv run usecaseapi manifest export composition:usecases --output usecaseapi.yaml
 ```
