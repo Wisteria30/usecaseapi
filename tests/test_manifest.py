@@ -31,7 +31,6 @@ from usecaseapi import (
 )
 from usecaseapi.cli import main
 from usecaseapi.manifest import (
-    MANIFEST_KIND,
     ManifestError,
     diff_manifests,
     dump_manifest,
@@ -171,7 +170,7 @@ class RichImpl:
 def minimal_manifest() -> dict[str, Any]:
     """Create a minimal valid Manifest mapping."""
     return {
-        "kind": MANIFEST_KIND,
+        "kind": manifest_module.LEGACY_MANIFEST_KIND,
         "usecases": [
             {
                 "name": "example.run",
@@ -207,22 +206,25 @@ def test_manifest_export_is_yaml_and_validates(tmp_path: Path) -> None:
         package="example",
         implementations_root="src",
     )
-    path = tmp_path / "usecaseapi.ucase.yaml"
+    path = tmp_path / "usecaseapi.yaml"
     dump_manifest(manifest, path)
     loaded = load_manifest(path)
+    semantic = manifest_module.semantic_from_openapi_manifest(loaded)
+    usecase = semantic["usecases"][0]
 
-    assert loaded["kind"] == MANIFEST_KIND
-    assert loaded["metadata"]["name"] == "demo"
-    assert loaded["layout"]["package"] == "example"
-    assert loaded["layout"]["implementations_root"] == "src"
-    assert loaded["usecases"][0]["key"] == "example.run@v1"
-    assert loaded["usecases"][0]["models"][0]["description"] == "Input for the manifest example."
-    assert loaded["usecases"][0]["source"]["implementation_class"] == "RunUseCase"
-    assert loaded["usecases"][0]["source"]["implementation_file"] == (
+    assert loaded["openapi"] == "3.1.0"
+    assert loaded["x-usecaseapi"]["manifestKind"] == "usecaseapi.openapi.profile/3.1.0"
+    assert semantic["metadata"]["name"] == "demo"
+    assert semantic["layout"]["package"] == "example"
+    assert semantic["layout"]["implementations_root"] == "src"
+    assert usecase["key"] == "example.run@v1"
+    assert usecase["models"][0]["description"] == "Input for the manifest example."
+    assert usecase["source"]["implementation_class"] == "RunUseCase"
+    assert usecase["source"]["implementation_file"] == (
         "src/example/usecases/run/v1/run_usecase.py"
     )
-    assert loaded["usecases"][0]["raises"] == ["ExampleError"]
-    assert loaded["usecases"][0]["known_errors"] == ["ExampleRejected"]
+    assert usecase["raises"] == ["ExampleError"]
+    assert usecase["known_errors"] == ["ExampleRejected"]
 
 
 def test_manifest_export_includes_binding_metadata_and_rich_types() -> None:
@@ -241,12 +243,12 @@ def test_manifest_export_includes_binding_metadata_and_rich_types() -> None:
         include_json_schema=True,
         contracts_root="not/a/matching/root",
     )
-    usecase = manifest["usecases"][0]
+    usecase = manifest_module.usecase_items(manifest)[0]
     contract = render_contract_module(usecase)
 
-    assert usecase["binding_description"] == "Factory description."
-    assert usecase["binding_tags"] == ["factory"]
-    assert usecase["schemas"]["input"]["title"] == "RichInput"
+    operation = manifest["paths"]["/_usecases/rich.run/v1/call"]["post"]
+    assert operation["tags"] == ["factory"]
+    assert manifest["components"]["schemas"]["RichRunV1RichInput"]["title"] == "RichInput"
     assert "description: Open value" in yaml.safe_dump(usecase)
     assert "from uuid import UUID" in contract
     assert "from datetime import date, datetime" in contract
@@ -261,7 +263,7 @@ def test_manifest_export_includes_binding_metadata_and_rich_types() -> None:
 def test_manifest_validation_rejects_unsafe_type_expression() -> None:
     """Manifest type expressions are a small annotation subset."""
     manifest = {
-        "kind": MANIFEST_KIND,
+        "kind": manifest_module.LEGACY_MANIFEST_KIND,
         "usecases": [
             {
                 "name": "example.run",
@@ -382,7 +384,7 @@ def test_manifest_validation_rejects_invalid_catalog_shapes(
     with pytest.raises(ManifestError, match=message):
         validate_manifest(manifest)
 
-    invalid_path = tmp_path / "invalid.ucase.yaml"
+    invalid_path = tmp_path / "invalid.yaml"
     invalid_path.write_text("- not: a mapping\n")
     with pytest.raises(ManifestError, match="YAML mapping"):
         load_manifest(invalid_path)
@@ -391,7 +393,7 @@ def test_manifest_validation_rejects_invalid_catalog_shapes(
 def test_manifest_validation_checks_error_boundaries() -> None:
     """Known errors must be defined and covered by a declared raise boundary."""
     manifest = {
-        "kind": MANIFEST_KIND,
+        "kind": manifest_module.LEGACY_MANIFEST_KIND,
         "usecases": [
             {
                 "name": "example.run",
@@ -606,6 +608,23 @@ def test_manifest_scaffold_handles_dry_run_existing_files_and_default_paths(
     with pytest.raises(FileExistsError, match="already exists"):
         scaffold_from_manifest(manifest, root=tmp_path, create_implementation=False)
 
+    v2_manifest = deepcopy(manifest)
+    v2_manifest["layout"] = {
+        "contracts_root": "src/contracts",
+        "implementations_root": "src/usecases",
+        "tests_root": "specs",
+        "package": "app",
+    }
+    v2_openapi_manifest = manifest_module.openapi_manifest_from_semantic(v2_manifest)
+    v2_result = scaffold_from_manifest(
+        v2_openapi_manifest,
+        root=tmp_path / "v2",
+        dry_run=True,
+    )
+    assert tmp_path / "v2/src/contracts/example/run/v1.py" in v2_result.files
+    assert tmp_path / "v2/src/usecases/example/run.py" in v2_result.files
+    assert tmp_path / "v2/specs/example/run/v1/test_run.py" in v2_result.files
+
 
 def test_manifest_renders_docs_graph_and_diff() -> None:
     """Docs, graph, and diff are derived from Manifest YAML data."""
@@ -615,7 +634,9 @@ def test_manifest_renders_docs_graph_and_diff() -> None:
 
     markdown = render_manifest_markdown(manifest)
     graph = render_manifest_graph(manifest)
-    changed = yaml.safe_load(yaml.safe_dump(manifest))
+    changed = manifest_module.semantic_from_openapi_manifest(
+        yaml.safe_load(yaml.safe_dump(manifest))
+    )
     changed["usecases"][0]["output"] = "DifferentOutput"
     changed["usecases"][0]["models"].append({"name": "DifferentOutput", "fields": []})
     diff = diff_manifests(manifest, changed)
@@ -669,7 +690,7 @@ def test_manifest_cli_uses_yaml_for_export_validate_scaffold_docs_graph_and_diff
 ) -> None:
     """The CLI uses Manifest YAML as the catalog for all catalog commands."""
     monkeypatch.syspath_prepend("examples/basic/src")
-    manifest_path = tmp_path / "usecaseapi.ucase.yaml"
+    manifest_path = tmp_path / "usecaseapi.yaml"
     docs_path = tmp_path / "docs.md"
     graph_path = tmp_path / "graph.mmd"
 
@@ -686,8 +707,9 @@ def test_manifest_cli_uses_yaml_for_export_validate_scaffold_docs_graph_and_diff
         == 0
     )
     manifest = load_manifest(manifest_path)
-    assert manifest["kind"] == MANIFEST_KIND
-    assert manifest["usecases"][0]["source"]["implementation_file"] == (
+    assert manifest["openapi"] == "3.1.0"
+    semantic = manifest_module.semantic_from_openapi_manifest(manifest)
+    assert semantic["usecases"][0]["source"]["implementation_file"] == (
         "src/commerce/usecases/check_availability/v1/check_availability_usecase.py"
     )
 
@@ -713,7 +735,7 @@ def test_manifest_cli_uses_yaml_for_export_validate_scaffold_docs_graph_and_diff
 
     assert main(["manifest", "export", "composition:usecases"]) == 0
     stdout_manifest = yaml.safe_load(capsys.readouterr().out)
-    assert stdout_manifest["kind"] == MANIFEST_KIND
+    assert stdout_manifest["openapi"] == "3.1.0"
 
 
 def test_basic_example_manifest_is_generated_from_composition(
@@ -723,8 +745,8 @@ def test_basic_example_manifest_is_generated_from_composition(
     """The committed basic example Manifest matches CLI export output."""
     monkeypatch.chdir("examples/basic")
     monkeypatch.syspath_prepend("src")
-    exported_path = tmp_path / "usecaseapi.ucase.yaml"
-    committed_path = Path("usecaseapi.ucase.yaml")
+    exported_path = tmp_path / "usecaseapi.yaml"
+    committed_path = Path("usecaseapi.yaml")
 
     assert (
         main(
@@ -769,7 +791,7 @@ def test_manifest_cli_covers_error_and_stdout_branches(
 ) -> None:
     """CLI Manifest commands cover non-default branches and mismatch output."""
     monkeypatch.syspath_prepend("examples/basic/src")
-    manifest_path = tmp_path / "usecaseapi.ucase.yaml"
+    manifest_path = tmp_path / "usecaseapi.yaml"
     docs_path = tmp_path / "docs.md"
 
     assert main(["manifest", "export", "composition:usecases", "-o", str(manifest_path)]) == 0
@@ -793,10 +815,10 @@ def test_manifest_cli_covers_error_and_stdout_branches(
     )
     assert "created:" in capsys.readouterr().out
 
-    changed = load_manifest(manifest_path)
+    changed = manifest_module.semantic_from_openapi_manifest(load_manifest(manifest_path))
     changed["usecases"][0]["output"] = "DifferentOutput"
     changed["usecases"][0]["models"].append({"name": "DifferentOutput", "fields": []})
-    changed_path = tmp_path / "changed.ucase.yaml"
+    changed_path = tmp_path / "changed.yaml"
     changed_path.write_text(yaml.safe_dump(changed, sort_keys=False))
     assert main(["manifest", "check-sync", "composition:usecases", str(changed_path)]) == 1
     assert "Breaking:" in capsys.readouterr().out
@@ -815,7 +837,7 @@ def test_manifest_cli_prints_skipped_scaffold_files(
 ) -> None:
     """CLI scaffold reports skipped implementation files."""
     manifest = minimal_manifest()
-    manifest_path = tmp_path / "usecaseapi.ucase.yaml"
+    manifest_path = tmp_path / "usecaseapi.yaml"
     dump_manifest(manifest, manifest_path)
     implementation = tmp_path / "app/usecases/example/run.py"
     implementation.parent.mkdir(parents=True)
@@ -938,16 +960,20 @@ def test_manifest_named_helpers_cover_edge_branches(
     single_api.bind(EXAMPLE, lambda caller: ExampleImpl())
     monkeypatch.setattr(manifest_module, "source_file", lambda value: "example/usecases/run/v1.py")
     single_manifest = manifest_from_api(single_api)
-    assert single_manifest["layout"] == {
+    assert manifest_module.semantic_from_openapi_manifest(single_manifest)["layout"] == {
         "contracts_root": "example",
         "implementations_root": ".",
+        "tests_root": "tests",
         "package": "example",
     }
     monkeypatch.setattr(manifest_module, "source_file", lambda value: None)
     single_without_source_manifest = manifest_from_api(single_api)
-    assert single_without_source_manifest["layout"] == {
+    assert manifest_module.semantic_from_openapi_manifest(single_without_source_manifest)[
+        "layout"
+    ] == {
         "contracts_root": "src/example",
         "implementations_root": "src",
+        "tests_root": "tests",
         "package": "example",
     }
 
@@ -955,11 +981,155 @@ def test_manifest_named_helpers_cover_edge_branches(
     multi_api.bind(EXAMPLE, lambda caller: ExampleImpl())
     multi_api.bind(RICH, lambda caller: RichImpl())
     multi_manifest = manifest_from_api(multi_api)
-    assert multi_manifest["layout"] == {
+    assert manifest_module.semantic_from_openapi_manifest(multi_manifest)["layout"] == {
         "contracts_root": "src",
         "implementations_root": "src",
+        "tests_root": "tests",
     }
 
-    assert manifest_module.semantic_manifest(minimal_manifest())["kind"] == MANIFEST_KIND
+    assert manifest_module.semantic_manifest(minimal_manifest())["kind"] == (
+        manifest_module.LEGACY_MANIFEST_KIND
+    )
     assert manifest_module.project_name({}) is None
     assert manifest_module.package_name({}) is None
+
+
+def test_manifest_v2_openapi_profile_error_branches() -> None:
+    """OpenAPI profile validation and normalization failures stay explicit."""
+    api = UseCaseAPI[None]()
+    api.bind(EXAMPLE, lambda caller: ExampleImpl())
+    manifest = manifest_from_api(api, project="demo")
+
+    invalid_openapi = deepcopy(manifest)
+    invalid_openapi["openapi"] = "3.0.3"
+    with pytest.raises(ManifestError, match="manifest.openapi"):
+        validate_manifest(invalid_openapi)
+
+    missing_surface = deepcopy(manifest)
+    missing_surface.pop("paths")
+    missing_surface.pop("components")
+    with pytest.raises(ManifestError, match="paths or components"):
+        validate_manifest(missing_surface)
+
+    invalid_version = deepcopy(manifest)
+    invalid_version["x-usecaseapi"]["version"] = "0.0.0"
+    with pytest.raises(ManifestError, match="x-usecaseapi.version"):
+        validate_manifest(invalid_version)
+
+    invalid_profile = deepcopy(manifest)
+    invalid_profile["x-usecaseapi"]["profile"] = "other"
+    with pytest.raises(ManifestError, match="x-usecaseapi.profile"):
+        validate_manifest(invalid_profile)
+
+    invalid_manifest_kind = deepcopy(manifest)
+    invalid_manifest_kind["x-usecaseapi"]["manifestKind"] = "other"
+    with pytest.raises(ManifestError, match="x-usecaseapi.manifestKind"):
+        validate_manifest(invalid_manifest_kind)
+
+    skipped_paths = deepcopy(manifest)
+    paths = skipped_paths["paths"]
+    paths[123] = {"post": {}}
+    paths["/_ignored/no_post"] = {"get": {}}
+    paths["/_ignored/not_usecase"] = {"post": {"x-usecaseapi": {"kind": "other"}}}
+    assert len(manifest_module.semantic_from_openapi_manifest(skipped_paths)["usecases"]) == 1
+
+    path, path_item = next(iter(manifest["paths"].items()))
+    operation = path_item["post"]
+    with pytest.raises(ManifestError, match="usecase path"):
+        manifest_module.openapi_operation_to_usecase(
+            "/_usecases/example.run/v2/call",
+            operation,
+            operation["x-usecaseapi"],
+            manifest,
+        )
+
+
+def test_manifest_v2_schema_and_helper_edge_branches() -> None:
+    """v2 schema conversion helpers cover unsupported and malformed edge cases."""
+    api = UseCaseAPI[None]()
+    api.bind(EXAMPLE, lambda caller: ExampleImpl())
+    manifest = manifest_from_api(api, project="demo")
+
+    assert manifest_module.type_expr_to_schema("Custom", usecase={}) == {}
+    assert manifest_module.type_ast_to_schema(
+        ast.parse("'fixed'", mode="eval").body,
+        usecase={},
+    ) == {"const": "fixed"}
+    assert (
+        manifest_module.type_ast_to_schema(
+            ast.parse("lambda: 1", mode="eval").body,
+            usecase={},
+        )
+        == {}
+    )
+    typing_list = ast.parse("typing.List[str]", mode="eval").body
+    assert isinstance(typing_list, ast.Subscript)
+    assert manifest_module.subscript_ast_to_schema(typing_list, usecase={}) == {}
+
+    frozenset_type = ast.parse("frozenset[str]", mode="eval").body
+    assert isinstance(frozenset_type, ast.Subscript)
+    assert manifest_module.subscript_ast_to_schema(frozenset_type, usecase={}) == {}
+    assert manifest_module.ast_arg_schema([], 0, usecase={}) == {}
+
+    malformed_model = {
+        "properties": {
+            1: {"type": "string"},
+            "ignored": "not a schema",
+            "value": {"type": "integer"},
+        },
+        "required": ["value"],
+    }
+    assert manifest_module.schema_to_model("Malformed", malformed_model)["fields"] == [
+        {"name": "value", "type": "int", "required": True}
+    ]
+
+    missing_class = deepcopy(manifest)
+    first_schema = next(iter(missing_class["components"]["schemas"].values()))
+    first_schema.pop("title", None)
+    first_schema["x-usecaseapi"] = {"kind": "model"}
+    with pytest.raises(ManifestError, match="must declare a Python class"):
+        manifest_module.semantic_from_openapi_manifest(missing_class)
+
+    with pytest.raises(ManifestError, match="x-usecaseapi.uses must be a mapping"):
+        manifest_module.uses_from_extension({"uses": []})
+    with pytest.raises(ManifestError, match="x-usecaseapi.uses entries"):
+        manifest_module.uses_from_extension({"uses": {"bad": "entry"}})
+    with pytest.raises(ManifestError, match="unsupported schema reference"):
+        manifest_module.schema_by_ref(manifest, "#/components/responses/Error")
+
+    assert manifest_module.class_name_from_component_ref("#/components/schemas/Plain") == "Plain"
+
+    error_model_manifest = minimal_manifest()
+    error_model_usecase = error_model_manifest["usecases"][0]
+    error_model_usecase["errors"] = [
+        {
+            "name": "ExampleError",
+            "base": "UseCaseError",
+            "code": "example.run",
+            "fields": [{"name": "input", "type": "Input", "required": True}],
+        }
+    ]
+    error_model_usecase["raises"] = ["ExampleError"]
+    error_model_openapi = manifest_module.openapi_manifest_from_semantic(error_model_manifest)
+    payload_schema = error_model_openapi["components"]["schemas"]["ExampleRunV1ExampleErrorPayload"]
+    assert payload_schema["properties"]["input"] == {
+        "$ref": "#/components/schemas/ExampleRunV1Input"
+    }
+    assert manifest_module.semantic_from_openapi_manifest(error_model_openapi)["usecases"][0][
+        "errors"
+    ][0]["fields"] == [{"name": "input", "type": "Input", "required": True}]
+
+    documented = minimal_manifest()
+    documented["metadata"] = {"name": "demo"}
+    assert "Project: `demo`" in render_manifest_markdown(documented)
+
+    with pytest.raises(ManifestError, match="manifest.usecases"):
+        manifest_module.usecase_items_from_semantic({"usecases": {}})
+
+    assert (
+        manifest_module.module_from_python_file(
+            Path("src/example/contracts/run.py"),
+            package="example",
+        )
+        == "example.contracts.run"
+    )

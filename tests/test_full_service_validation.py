@@ -38,6 +38,7 @@ from usecaseapi.manifest import (
     manifest_from_api,
     render_manifest_graph,
     render_manifest_markdown,
+    semantic_from_openapi_manifest,
 )
 from usecaseapi.scaffold import ScaffoldOptions, ScaffoldResult, scaffold_usecase
 
@@ -326,7 +327,7 @@ def test_manifest_docs_graph_and_diff_cover_contract_catalog() -> None:
     graph = render_manifest_graph(manifest)
     assert "uc_example_run_v1 --> uc_empty_run_v1" in graph
 
-    changed = deepcopy(manifest)
+    changed = semantic_from_openapi_manifest(deepcopy(manifest))
     changed["usecases"] = [item for item in changed["usecases"] if item["key"] != "empty.run@v1"]
     changed["usecases"][0]["input"] = "DifferentInput"
     changed["usecases"][0]["models"].append({"name": "DifferentInput", "fields": []})
@@ -432,7 +433,8 @@ def test_cli_commands_validate_service_surface(
 
         assert main(["inspect", "composition:usecases"]) == 0
         inspect_output = yaml.safe_load(capsys.readouterr().out)
-        assert {item["key"] for item in inspect_output["usecases"]} == {
+        inspect_semantic = semantic_from_openapi_manifest(inspect_output)
+        assert {item["key"] for item in inspect_semantic["usecases"]} == {
             "commerce.check_availability@v1",
             "commerce.checkout@v1",
             "commerce.place_order@v1",
@@ -440,13 +442,13 @@ def test_cli_commands_validate_service_surface(
 
         docs_path = tmp_path / "docs.md"
         graph_path = tmp_path / "graph.mmd"
-        manifest_path = tmp_path / "usecaseapi.ucase.yaml"
+        manifest_path = tmp_path / "usecaseapi.yaml"
         assert main(["manifest", "export", "composition:usecases", "-o", str(manifest_path)]) == 0
         assert main(["docs", str(manifest_path), "--output", str(docs_path)]) == 0
         assert main(["graph", str(manifest_path), "-o", str(graph_path)]) == 0
         assert "commerce.checkout v1" in docs_path.read_text()
         assert "commerce.place_order@v1" in graph_path.read_text()
-        assert load_manifest(manifest_path)["kind"] == "usecaseapi.manifest/v1"
+        assert load_manifest(manifest_path)["openapi"] == "3.1.0"
 
         monkeypatch.chdir(tmp_path)
         assert (
@@ -489,8 +491,8 @@ def test_cli_commands_validate_service_surface(
             "additions": [],
         }
 
-        changed_path = tmp_path / "changed.ucase.yaml"
-        changed = load_manifest(manifest_path)
+        changed_path = tmp_path / "changed.yaml"
+        changed = semantic_from_openapi_manifest(load_manifest(manifest_path))
         changed["usecases"] = changed["usecases"][1:]
         changed_path.write_text(yaml.safe_dump(changed, sort_keys=False))
         assert main(["diff", str(manifest_path), str(changed_path)]) == 1

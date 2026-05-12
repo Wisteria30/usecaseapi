@@ -191,33 +191,33 @@ See [docs/scaffold.md](docs/scaffold.md) for the generated layout and options.
 Export the canonical contract catalog:
 
 ```bash
-usecaseapi manifest export composition:usecases --output usecaseapi.ucase.yaml
+usecaseapi manifest export composition:usecases --output usecaseapi.yaml
 ```
 
 Validate it and check that code still matches it:
 
 ```bash
-usecaseapi manifest validate usecaseapi.ucase.yaml
-usecaseapi manifest check-sync composition:usecases usecaseapi.ucase.yaml
+usecaseapi manifest validate usecaseapi.yaml
+usecaseapi manifest check-sync composition:usecases usecaseapi.yaml
 ```
 
 Generate Python contract, implementation, and pytest skeletons from the catalog:
 
 ```bash
-usecaseapi manifest scaffold usecaseapi.ucase.yaml --root .
+usecaseapi manifest scaffold usecaseapi.yaml --root .
 ```
 
 Render derived outputs:
 
 ```bash
-usecaseapi docs usecaseapi.ucase.yaml --output usecaseapi.md
-usecaseapi graph usecaseapi.ucase.yaml --output usecaseapi.mmd
-usecaseapi diff old.ucase.yaml new.ucase.yaml
+usecaseapi docs usecaseapi.yaml --output usecaseapi.md
+usecaseapi graph usecaseapi.yaml --output usecaseapi.mmd
+usecaseapi diff old.yaml new.yaml
 ```
 
 See [docs/scaffold.md](docs/scaffold.md), [docs/manifest.md](docs/manifest.md), and
 [docs/llm-manifest-prompt.md](docs/llm-manifest-prompt.md) for generated layouts,
-Manifest syntax, and an LLM prompt for converging requirements into `usecaseapi.ucase.yaml`.
+Manifest syntax, and an LLM prompt for converging requirements into `usecaseapi.yaml`.
 
 ## Manifest docs and graph
 

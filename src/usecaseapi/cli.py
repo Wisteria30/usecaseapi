@@ -103,7 +103,7 @@ def inspect(
 
 @app.command()
 def docs(
-    manifest: Annotated[Path, typer.Argument(help="Path to a .ucase.yaml Manifest")],
+    manifest: Annotated[Path, typer.Argument(help="Path to usecaseapi.yaml")],
     output: Annotated[str | None, typer.Option("--output", "-o")] = None,
 ) -> None:
     """Write or print Markdown docs from a UseCaseAPI Manifest."""
@@ -112,7 +112,7 @@ def docs(
 
 @app.command()
 def graph(
-    manifest: Annotated[Path, typer.Argument(help="Path to a .ucase.yaml Manifest")],
+    manifest: Annotated[Path, typer.Argument(help="Path to usecaseapi.yaml")],
     output: Annotated[str | None, typer.Option("--output", "-o")] = None,
 ) -> None:
     """Write or print a Mermaid graph from a UseCaseAPI Manifest."""
@@ -164,7 +164,7 @@ def manifest_export(
 
 @manifest_app.command("validate")
 def manifest_validate(
-    path: Annotated[Path, typer.Argument(help="Path to a .ucase.yaml Manifest")],
+    path: Annotated[Path, typer.Argument(help="Path to usecaseapi.yaml")],
 ) -> None:
     """Validate a UseCaseAPI Manifest."""
     validate_manifest(load_manifest(path))
@@ -173,7 +173,7 @@ def manifest_validate(
 
 @manifest_app.command("scaffold")
 def manifest_scaffold(
-    path: Annotated[Path, typer.Argument(help="Path to a .ucase.yaml Manifest")],
+    path: Annotated[Path, typer.Argument(help="Path to usecaseapi.yaml")],
     root: Annotated[Path, typer.Option(help="Root directory for generated files")] = Path("."),
     force: Annotated[bool, typer.Option(help="Overwrite generated files")] = False,
     dry_run: Annotated[bool, typer.Option(help="Print files without writing them")] = False,
@@ -199,7 +199,7 @@ def manifest_scaffold(
 @manifest_app.command("check-sync")
 def manifest_check_sync(
     target: Annotated[str, typer.Argument(help="Import path like 'composition:usecases'")],
-    path: Annotated[Path, typer.Argument(help="Path to a .ucase.yaml Manifest")],
+    path: Annotated[Path, typer.Argument(help="Path to usecaseapi.yaml")],
 ) -> None:
     """Check that code and a Manifest describe the same contract catalog."""
     api = load_api(target)
