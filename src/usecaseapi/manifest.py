@@ -1214,11 +1214,11 @@ def render_contract_module(usecase: Mapping[str, Any]) -> str:
 
     for model in models:
         lines.extend(render_model_class(model))
-        lines.append("")
+        lines.extend(["", ""])
 
     for error in errors:
         lines.extend(render_error_class(error))
-        lines.append("")
+        lines.extend(["", ""])
 
     lines.extend(
         render_contract_binding(
@@ -1261,7 +1261,10 @@ def render_implementation_module(usecase: Mapping[str, Any]) -> str:
     module_docstring = f'"""{description}"""\n\n' if isinstance(description, str) else ""
     return f'''{module_docstring}from __future__ import annotations
 
-from {contract_module} import {input_name}, {output_name}, {protocol_class}
+from {contract_module} import (
+    {input_name},
+    {output_name},
+)
 
 
 class {implementation_class}:
@@ -1295,7 +1298,9 @@ from {contract_module} import (
     {ref},
     {protocol_class},
 )
-from {implementation_module} import {implementation_class}
+from {implementation_module} import (
+    {implementation_class},
+)
 
 
 def test_{test_name}_contract_metadata() -> None:
@@ -2010,8 +2015,17 @@ def render_error_class(error: Mapping[str, Any]) -> list[str]:
     name = required_string(error, "name")
     base = string_or_default(error.get("base"), "UseCaseError")
     code = required_string(error, "code")
+    description = error.get("description")
+    class_description = (
+        description if isinstance(description, str) and description else f"Domain error for {code}."
+    )
     fields = manifest_fields(error)
-    lines = [f"class {name}({base}):", f'    code: ClassVar[str] = "{code}"']
+    lines = [
+        f"class {name}({base}):",
+        f'    """{class_description}"""',
+        "",
+        f'    code: ClassVar[str] = "{code}"',
+    ]
     if not fields:
         return lines
     lines.append("")
@@ -2022,6 +2036,7 @@ def render_error_class(error: Mapping[str, Any]) -> list[str]:
         f"{required_string(field, 'name')}: {required_string(field, 'type')}" for field in fields
     )
     lines.append(f"    def __init__(self, *, {params}) -> None:")
+    lines.append(f'        """Create a {name} domain error."""')
     for field in fields:
         field_name = required_string(field, "name")
         lines.append(f"        self.{field_name} = {field_name}")
@@ -2091,6 +2106,7 @@ def render_contract_binding(
         f'    """{protocol_description}"""',
         "",
         f"    async def __call__(self, input: {input_name}, /) -> {output_name}:",
+        f'        """Run {name} v{version}."""',
         "        ...",
         "",
         "",
@@ -2245,7 +2261,7 @@ def ensure_init_files(directory: Path, *, stop_at: Path) -> None:
             break
         init_file = current / "__init__.py"
         if not init_file.exists():
-            init_file.write_text("")
+            init_file.write_text('"""Generated package."""\n')
         current = current.parent
 
 
