@@ -571,7 +571,7 @@ usecases:
     assert "_impl" not in implementation_text
     test_text = test_file.read_text()
     assert "from app.contracts.orders.place_order.v1 import (" in test_text
-    assert "from app.usecases.orders.place_order import PlaceOrderImpl" in test_text
+    assert "from app.usecases.orders.place_order import (\n    PlaceOrderImpl,\n)" in test_text
     assert "usecase: PlaceOrder = PlaceOrderImpl()" in test_text
 
 
