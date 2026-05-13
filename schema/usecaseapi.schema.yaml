@@ -1,5 +1,5 @@
 $schema: https://json-schema.org/draft/2020-12/schema
-$id: https://usecaseapi.dev/schemas/usecaseapi.openapi.profile.v2.schema.yaml
+$id: https://usecaseapi.dev/schemas/usecaseapi.schema.yaml
 title: UseCaseAPI OpenAPI Profile Manifest v2
 type: object
 required:
