@@ -10,7 +10,7 @@ from fastapi import Request
 
 from usecaseapi.swagger import SwaggerPreviewError
 
-_EXAMPLE_SRC = Path(__file__).resolve().parent / "src"
+_EXAMPLE_SRC = Path(__file__).resolve().parents[1] / "src"
 if str(_EXAMPLE_SRC) not in sys.path:
     sys.path.insert(0, str(_EXAMPLE_SRC))
 

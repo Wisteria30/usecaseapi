@@ -19,20 +19,58 @@ uv sync --extra dev --extra swagger
 uv run usecaseapi swagger
 ```
 
-The command discovers a preview module, loads its `api` object, creates local
-`POST` routes for bound usecases, and serves Swagger UI at:
+The command discovers an existing composition or preview module, loads its
+`api` or `usecases` object, creates local `POST` routes for bound usecases, and
+serves Swagger UI at:
 
 ```text
 http://127.0.0.1:8000/docs
+```
+
+If the requested port is already in use, the command tries the next port until
+it finds one it can bind. The selected URL is printed before the server starts:
+
+```text
+UseCaseAPI Swagger preview running at:
+  requested port 8000 is unavailable; using 8001
+  http://127.0.0.1:8001/docs
+```
+
+You can choose the starting port explicitly:
+
+```bash
+uv run usecaseapi swagger --port 8765
 ```
 
 This is not a production HTTP adapter. Use it for local verification of inputs,
 outputs, dependency wiring, and domain errors before committing application
 contract changes.
 
+## Composition First
+
+For projects with an existing composition module, no preview-only file is
+required. A normal composition module can export `usecases`:
+
+```python
+from usecaseapi import UseCaseAPI
+
+usecases = UseCaseAPI[None]()
+```
+
+Then this command can start the preview without creating files in the project:
+
+```bash
+uv run usecaseapi swagger
+```
+
+Use a preview module only when local verification needs request-specific
+fixtures, headers, or test data that should not live in the application
+composition.
+
 ## Preview Module
 
-Create `usecaseapi_preview.py` at the project root:
+Create `tests/usecaseapi_preview.py` when the preview needs development-only
+fixtures:
 
 ```python
 from __future__ import annotations
@@ -45,7 +83,7 @@ from fastapi import Request
 
 from usecaseapi.swagger import SwaggerPreviewError
 
-_PROJECT_SRC = Path(__file__).resolve().parent / "src"
+_PROJECT_SRC = Path(__file__).resolve().parents[1] / "src"
 if str(_PROJECT_SRC) not in sys.path:
     sys.path.insert(0, str(_PROJECT_SRC))
 
@@ -81,14 +119,21 @@ fallback.
 
 When `--preview` is not provided, the command searches in this order:
 
-1. `usecaseapi_preview.py`
-2. `preview.py`
-3. `composition.py`
-4. `src/composition.py`
+1. `tests/usecaseapi_preview.py`
+2. `dev/usecaseapi_preview.py`
+3. `src/composition.py`
+4. `composition.py`
+5. `usecaseapi_preview.py`
+6. `preview.py`
+
+Root-level preview files are supported for compatibility, but the recommended
+project-owned preview location is `tests/usecaseapi_preview.py` or
+`dev/usecaseapi_preview.py`.
 
 You can also point the command at a specific preview module:
 
 ```bash
 uv run usecaseapi swagger --preview usecaseapi_preview
+uv run usecaseapi swagger --preview tests/usecaseapi_preview.py
 uv run usecaseapi swagger --preview path/to/usecaseapi_preview.py
 ```

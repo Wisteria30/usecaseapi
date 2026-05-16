@@ -92,6 +92,17 @@ def test_discovers_usecaseapi_preview_module(
     assert discover_preview_module() == preview_path
 
 
+def test_discovers_dev_preview_before_root_preview(tmp_path: Path) -> None:
+    """Project-local test preview modules take precedence over root preview files."""
+    root_preview = tmp_path / "usecaseapi_preview.py"
+    tests_preview = tmp_path / "tests" / "usecaseapi_preview.py"
+    tests_preview.parent.mkdir()
+    root_preview.write_text("from usecaseapi import UseCaseAPI\n\napi = UseCaseAPI[None]()\n")
+    tests_preview.write_text("from usecaseapi import UseCaseAPI\n\napi = UseCaseAPI[None]()\n")
+
+    assert discover_preview_module(cwd=tmp_path) == tests_preview
+
+
 def test_discover_preview_module_reports_supported_names(tmp_path: Path) -> None:
     """Missing preview modules report the supported discovery filenames."""
     with pytest.raises(SwaggerPreviewError) as exc_info:
@@ -99,18 +110,29 @@ def test_discover_preview_module_reports_supported_names(tmp_path: Path) -> None
 
     message = str(exc_info.value)
     assert "could not find preview module" in message
+    assert "tests/usecaseapi_preview.py" in message
     assert "usecaseapi_preview.py" in message
     assert "src/composition.py" in message
 
 
 def test_load_preview_requires_api_export(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Preview modules must export a UseCaseAPI instance named api."""
+    """Preview modules must export a supported UseCaseAPI instance."""
     preview_path = tmp_path / "usecaseapi_preview.py"
     preview_path.write_text("value = 1\n")
     monkeypatch.chdir(tmp_path)
 
-    with pytest.raises(SwaggerPreviewError, match="export 'api'"):
+    with pytest.raises(SwaggerPreviewError, match="export 'api' or 'usecases'"):
         load_preview(None)
+
+
+def test_load_preview_accepts_usecases_export(tmp_path: Path) -> None:
+    """Existing composition modules can expose usecases without a preview-only api alias."""
+    preview_path = tmp_path / "composition.py"
+    preview_path.write_text("from usecaseapi import UseCaseAPI\n\nusecases = UseCaseAPI[None]()\n")
+
+    config = load_preview(str(preview_path))
+
+    assert isinstance(config.api, UseCaseAPI)
 
 
 def test_load_preview_requires_callable_context_factory(tmp_path: Path) -> None:
@@ -431,6 +453,61 @@ def test_serve_swagger_preview_loads_app_and_starts_uvicorn(
     assert calls[0]["host"] == "127.0.0.1"
     assert calls[0]["port"] == 8765
     assert "http://127.0.0.1:8765/docs" in capsys.readouterr().out
+
+
+def test_serve_swagger_preview_increments_unavailable_port(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The server wrapper opens the next available port when the requested one is busy."""
+    from usecaseapi.swagger import serve_swagger_preview
+
+    preview_path = tmp_path / "usecaseapi_preview.py"
+    preview_path.write_text("from usecaseapi import UseCaseAPI\n\napi = UseCaseAPI[None]()\n")
+    calls: list[dict[str, object]] = []
+
+    def run(app: object, *, host: str, port: int) -> None:
+        calls.append({"app": app, "host": host, "port": port})
+
+    def is_port_available(*, host: str, port: int) -> bool:
+        return port == 8002
+
+    monkeypatch.setitem(sys.modules, "uvicorn", SimpleNamespace(run=run))
+    monkeypatch.setattr("usecaseapi.swagger.is_port_available", is_port_available)
+
+    serve_swagger_preview(preview=str(preview_path), host="127.0.0.1", port=8000)
+
+    assert len(calls) == 1
+    assert calls[0]["port"] == 8002
+    output = capsys.readouterr().out
+    assert "requested port 8000 is unavailable; using 8002" in output
+    assert "http://127.0.0.1:8002/docs" in output
+
+
+def test_select_available_port_reports_exhausted_range(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Port selection reports an explicit error when no port can be bound."""
+    from usecaseapi.swagger import select_available_port
+
+    monkeypatch.setattr("usecaseapi.swagger.is_port_available", lambda *, host, port: False)
+
+    with pytest.raises(SwaggerPreviewError, match="at or above 65535"):
+        select_available_port(host="127.0.0.1", preferred_port=65535)
+
+
+def test_is_port_available_detects_bound_port() -> None:
+    """A port already bound by another socket is unavailable."""
+    import socket
+
+    from usecaseapi.swagger import is_port_available
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        occupied_port = sock.getsockname()[1]
+
+        assert not is_port_available(host="127.0.0.1", port=occupied_port)
 
 
 def test_swagger_cli_starts_preview_server(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

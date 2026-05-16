@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib
 import importlib.util
 import inspect
+import socket
 import sys
 
 from collections.abc import Awaitable, Callable
@@ -18,11 +19,14 @@ from .contracts import UseCaseRef
 from .errors import UseCaseAPIError
 
 PREVIEW_MODULE_CANDIDATES = (
+    Path("tests/usecaseapi_preview.py"),
+    Path("dev/usecaseapi_preview.py"),
+    Path("src/composition.py"),
+    Path("composition.py"),
     Path("usecaseapi_preview.py"),
     Path("preview.py"),
-    Path("composition.py"),
-    Path("src/composition.py"),
 )
+API_EXPORT_NAMES = ("api", "usecases")
 
 
 class SwaggerPreviewError(UseCaseAPIError):
@@ -52,9 +56,19 @@ def discover_preview_module(*, cwd: Path | None = None) -> Path:
 def load_preview(preview: str | None) -> PreviewConfig:
     """Load a Swagger preview module and validate its exported configuration."""
     module = import_preview_module(preview)
-    api = getattr(module, "api", None)
+    api = next(
+        (
+            value
+            for export_name in API_EXPORT_NAMES
+            if isinstance(value := getattr(module, export_name, None), UseCaseAPI)
+        ),
+        None,
+    )
     if not isinstance(api, UseCaseAPI):
-        raise SwaggerPreviewError("preview module must export 'api' as a UseCaseAPI instance")
+        exports = "' or '".join(API_EXPORT_NAMES)
+        raise SwaggerPreviewError(
+            f"preview module must export '{exports}' as a UseCaseAPI instance"
+        )
     create_context = getattr(module, "create_context", None)
     if create_context is not None and not callable(create_context):
         raise SwaggerPreviewError("preview module export 'create_context' must be callable")
@@ -109,9 +123,30 @@ def serve_swagger_preview(*, preview: str | None, host: str, port: int) -> None:
 
     config = load_preview(preview)
     app = create_swagger_app(api=config.api, create_context=config.create_context)
+    selected_port = select_available_port(host=host, preferred_port=port)
     print("UseCaseAPI Swagger preview running at:")
-    print(f"  http://{host}:{port}/docs")
-    uvicorn.run(app, host=host, port=port)
+    if selected_port != port:
+        print(f"  requested port {port} is unavailable; using {selected_port}")
+    print(f"  http://{host}:{selected_port}/docs")
+    uvicorn.run(app, host=host, port=selected_port)
+
+
+def select_available_port(*, host: str, preferred_port: int) -> int:
+    """Return the first available TCP port at or above the preferred port."""
+    for port in range(preferred_port, 65536):
+        if is_port_available(host=host, port=port):
+            return port
+    raise SwaggerPreviewError(f"could not find an available port at or above {preferred_port}")
+
+
+def is_port_available(*, host: str, port: int) -> bool:
+    """Return whether a TCP port can be bound by the preview server."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        try:
+            sock.bind((host, port))
+        except OSError:
+            return False
+    return True
 
 
 def register_domain_error_handler(app: Any) -> None:
