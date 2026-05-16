@@ -14,3 +14,22 @@ Regenerate the Manifest from the composed API:
 ```bash
 PYTHONPATH=src uv run usecaseapi manifest export composition:usecases --output usecaseapi.yaml
 ```
+
+## Swagger Preview
+
+Run the local Swagger preview from this directory:
+
+```bash
+uv run usecaseapi swagger
+```
+
+Open `http://127.0.0.1:8000/docs` and use Swagger UI Try it out to call the example usecases.
+
+The `x-usecaseapi-scenario` request header switches the inventory fixture used by the
+preview context:
+
+- `default`: `sku_456` has 10 units and `sku_sold_out` has 0 units.
+- `empty`: both `sku_456` and `sku_sold_out` have 0 units.
+- `rich`: `sku_456` has 100 units and `sku_sold_out` has 5 units.
+
+Unknown scenario values fail explicitly instead of using another fixture.

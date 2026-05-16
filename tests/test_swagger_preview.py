@@ -211,6 +211,60 @@ def test_request_headers_can_drive_preview_context() -> None:
     assert response.json() == {"value": 12}
 
 
+def test_basic_example_preview_module_runs_scenarios(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The basic example preview module exposes inventory scenarios."""
+    from fastapi.testclient import TestClient
+
+    from usecaseapi.swagger import create_swagger_app
+
+    monkeypatch.chdir("examples/basic")
+
+    config = load_preview(None)
+    client = TestClient(create_swagger_app(api=config.api, create_context=config.create_context))
+    payload = {"user_id": "user_123", "item": {"sku_id": "sku_456", "quantity": 2}}
+
+    accepted = client.post("/_usecases/commerce.place_order/v1/call", json=payload)
+    shortage = client.post(
+        "/_usecases/commerce.place_order/v1/call",
+        json=payload,
+        headers={"x-usecaseapi-scenario": "empty"},
+    )
+
+    assert accepted.status_code == 200
+    assert accepted.json() == {"order_id": "ord_123", "status": "accepted"}
+    assert shortage.status_code == 400
+    assert shortage.json()["code"] == "commerce.place_order.inventory_shortage"
+
+
+def test_basic_example_preview_module_rejects_unknown_scenario(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The basic preview reports unknown inventory scenarios explicitly."""
+    from fastapi.testclient import TestClient
+
+    from usecaseapi.swagger import create_swagger_app
+
+    monkeypatch.chdir("examples/basic")
+
+    config = load_preview(None)
+    client = TestClient(
+        create_swagger_app(api=config.api, create_context=config.create_context),
+        raise_server_exceptions=False,
+    )
+
+    response = client.post(
+        "/_usecases/commerce.place_order/v1/call",
+        json={"user_id": "user_123", "item": {"sku_id": "sku_456", "quantity": 2}},
+        headers={"x-usecaseapi-scenario": "unknown"},
+    )
+
+    assert response.status_code == 500
+    assert "unknown x-usecaseapi-scenario value 'unknown'" in response.text
+    assert "default" in response.text
+    assert "empty" in response.text
+    assert "rich" in response.text
+
+
 def test_context_factory_rejects_unsupported_signature() -> None:
     """Preview context factories must have a supported signature."""
     from fastapi.testclient import TestClient
