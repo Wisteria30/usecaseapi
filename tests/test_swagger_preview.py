@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import importlib.util
+import sys
+
 from collections.abc import Mapping, Sequence
 from pathlib import Path
+from types import SimpleNamespace
 from typing import ClassVar, Protocol
 
 import pytest
@@ -88,6 +92,17 @@ def test_discovers_usecaseapi_preview_module(
     assert discover_preview_module() == preview_path
 
 
+def test_discover_preview_module_reports_supported_names(tmp_path: Path) -> None:
+    """Missing preview modules report the supported discovery filenames."""
+    with pytest.raises(SwaggerPreviewError) as exc_info:
+        discover_preview_module(cwd=tmp_path)
+
+    message = str(exc_info.value)
+    assert "could not find preview module" in message
+    assert "usecaseapi_preview.py" in message
+    assert "src/composition.py" in message
+
+
 def test_load_preview_requires_api_export(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Preview modules must export a UseCaseAPI instance named api."""
     preview_path = tmp_path / "usecaseapi_preview.py"
@@ -96,6 +111,17 @@ def test_load_preview_requires_api_export(tmp_path: Path, monkeypatch: pytest.Mo
 
     with pytest.raises(SwaggerPreviewError, match="export 'api'"):
         load_preview(None)
+
+
+def test_load_preview_requires_callable_context_factory(tmp_path: Path) -> None:
+    """Preview modules must not export non-callable create_context values."""
+    preview_path = tmp_path / "usecaseapi_preview.py"
+    preview_path.write_text(
+        "from usecaseapi import UseCaseAPI\n\napi = UseCaseAPI[None]()\ncreate_context = 1\n"
+    )
+
+    with pytest.raises(SwaggerPreviewError, match="create_context"):
+        load_preview(str(preview_path))
 
 
 def test_create_swagger_app_calls_bound_usecase() -> None:
@@ -211,6 +237,26 @@ def test_create_swagger_app_supports_keyword_only_request_context() -> None:
 
     assert response.status_code == 200
     assert response.json() == {"value": 10}
+
+
+def test_create_swagger_app_supports_zero_argument_context_factory() -> None:
+    """Zero-argument context factories are evaluated once per request."""
+    from fastapi.testclient import TestClient
+
+    from usecaseapi.swagger import create_swagger_app
+
+    api = UseCaseAPI[MultiplierContext]()
+    api.bind(PREVIEW_USECASE, lambda caller: ContextImpl(caller.context.multiplier))
+
+    def create_context() -> MultiplierContext:
+        return MultiplierContext(multiplier=5)
+
+    client = TestClient(create_swagger_app(api=api, create_context=create_context))
+
+    response = client.post("/_usecases/preview.run/v1/call", json={"value": 3})
+
+    assert response.status_code == 200
+    assert response.json() == {"value": 15}
 
 
 def test_request_headers_can_drive_preview_context() -> None:
@@ -337,6 +383,56 @@ def test_create_swagger_app_reports_missing_fastapi(monkeypatch: pytest.MonkeyPa
         create_swagger_app(api=make_bound_api(), create_context=None)
 
 
+def test_serve_swagger_preview_reports_missing_uvicorn(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Missing server dependencies produce an explicit install error."""
+    import builtins
+
+    from usecaseapi.swagger import serve_swagger_preview
+
+    original_import = builtins.__import__
+
+    def guarded_import(
+        name: str,
+        globals_: Mapping[str, object] | None = None,
+        locals_: Mapping[str, object] | None = None,
+        fromlist: Sequence[str] = (),
+        level: int = 0,
+    ) -> object:
+        if name == "uvicorn":
+            raise ImportError("blocked uvicorn")
+        return original_import(name, globals_, locals_, fromlist, level)
+
+    monkeypatch.setattr(builtins, "__import__", guarded_import)
+
+    with pytest.raises(SwaggerPreviewError, match="uv sync --extra swagger"):
+        serve_swagger_preview(preview=None, host="127.0.0.1", port=8000)
+
+
+def test_serve_swagger_preview_loads_app_and_starts_uvicorn(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The server wrapper loads preview config and delegates to uvicorn."""
+    from usecaseapi.swagger import serve_swagger_preview
+
+    preview_path = tmp_path / "usecaseapi_preview.py"
+    preview_path.write_text("from usecaseapi import UseCaseAPI\n\napi = UseCaseAPI[None]()\n")
+    calls: list[dict[str, object]] = []
+
+    def run(app: object, *, host: str, port: int) -> None:
+        calls.append({"app": app, "host": host, "port": port})
+
+    monkeypatch.setitem(sys.modules, "uvicorn", SimpleNamespace(run=run))
+
+    serve_swagger_preview(preview=str(preview_path), host="127.0.0.1", port=8765)
+
+    assert len(calls) == 1
+    assert calls[0]["host"] == "127.0.0.1"
+    assert calls[0]["port"] == 8765
+    assert "http://127.0.0.1:8765/docs" in capsys.readouterr().out
+
+
 def test_swagger_cli_starts_preview_server(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """The swagger CLI command starts the local preview server with defaults."""
     from usecaseapi.cli import main
@@ -383,3 +479,58 @@ def test_swagger_cli_propagates_unrelated_usecaseapi_error(
 
     with pytest.raises(UnrelatedUseCaseAPIError):
         main(["swagger"])
+
+
+def test_import_preview_module_rejects_directory_path(tmp_path: Path) -> None:
+    """Preview paths must point to Python files."""
+    from usecaseapi.swagger import import_preview_module
+
+    with pytest.raises(SwaggerPreviewError, match="is not a file"):
+        import_preview_module(str(tmp_path))
+
+
+def test_import_preview_module_preserves_dependency_import_errors(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Import errors raised by preview module dependencies are not rewritten."""
+    from usecaseapi.swagger import import_preview_module
+
+    preview_path = tmp_path / "broken_preview.py"
+    preview_path.write_text("import missing_preview_dependency_123\n")
+    monkeypatch.syspath_prepend(str(tmp_path))
+
+    with pytest.raises(ModuleNotFoundError, match="missing_preview_dependency_123"):
+        import_preview_module("broken_preview")
+
+
+def test_import_preview_file_reports_missing_loader(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Preview file imports fail explicitly when importlib cannot create a loader."""
+    from usecaseapi.swagger import import_preview_file
+
+    preview_path = tmp_path / "usecaseapi_preview.py"
+    preview_path.write_text("from usecaseapi import UseCaseAPI\napi = UseCaseAPI[None]()\n")
+    monkeypatch.setattr(importlib.util, "spec_from_file_location", lambda *args: None)
+
+    with pytest.raises(SwaggerPreviewError, match="could not create import loader"):
+        import_preview_file(preview_path)
+
+
+def test_import_preview_file_removes_failed_module_from_cache(tmp_path: Path) -> None:
+    """Failed preview file execution does not leave its temporary module cached."""
+    from usecaseapi.swagger import import_preview_file
+
+    preview_path = tmp_path / "usecaseapi_preview.py"
+    preview_path.write_text("raise RuntimeError('preview boom')\n")
+    cached_before = {
+        name for name in sys.modules if name.startswith("_usecaseapi_swagger_preview_")
+    }
+
+    with pytest.raises(RuntimeError, match="preview boom"):
+        import_preview_file(preview_path)
+
+    cached_after = {name for name in sys.modules if name.startswith("_usecaseapi_swagger_preview_")}
+    assert cached_after == cached_before
