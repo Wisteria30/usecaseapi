@@ -156,9 +156,14 @@ def make_usecase_endpoint(
     create_context: Callable[..., Any] | None,
 ) -> Callable[..., Awaitable[Any]]:
     """Create one FastAPI endpoint function for a bound usecase."""
-    from fastapi import Request
+    from fastapi import Header, Request
 
-    async def endpoint(input: Any, request: Request) -> Any:
+    async def endpoint(
+        input: Any,
+        request: Request,
+        *,
+        _x_usecaseapi_scenario: str | None = None,
+    ) -> Any:
         context = await resolve_context(create_context, request)
         return await api.caller(context).call(ref, input)
 
@@ -174,6 +179,12 @@ def make_usecase_endpoint(
                 "request",
                 inspect.Parameter.POSITIONAL_OR_KEYWORD,
                 annotation=Request,
+            ),
+            inspect.Parameter(
+                "_x_usecaseapi_scenario",
+                inspect.Parameter.KEYWORD_ONLY,
+                default=Header(default=None, alias="x-usecaseapi-scenario"),
+                annotation=str | None,
             ),
         ],
         return_annotation=ref.contract.output,

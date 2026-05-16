@@ -158,6 +158,33 @@ def test_swagger_docs_include_usecase_path() -> None:
     assert "/_usecases/preview.run/v1/call" in response.json()["paths"]
 
 
+def test_swagger_docs_include_preview_scenario_header_parameter() -> None:
+    """FastAPI OpenAPI output exposes the preview scenario header."""
+    from fastapi.testclient import TestClient
+
+    from usecaseapi.swagger import create_swagger_app
+
+    client = TestClient(create_swagger_app(api=make_bound_api(), create_context=None))
+
+    response = client.get("/openapi.json")
+
+    assert response.status_code == 200
+    operation = response.json()["paths"]["/_usecases/preview.run/v1/call"]["post"]
+    scenario_parameter = next(
+        parameter
+        for parameter in operation["parameters"]
+        if parameter["name"] == "x-usecaseapi-scenario" and parameter["in"] == "header"
+    )
+    scenario_schema = scenario_parameter["schema"]
+    request_body_schema = operation["requestBody"]["content"]["application/json"]["schema"]
+
+    assert scenario_parameter["required"] is False
+    assert scenario_schema.get("type") == "string" or {"type": "string"} in scenario_schema.get(
+        "anyOf", []
+    )
+    assert request_body_schema == {"$ref": "#/components/schemas/PreviewInput"}
+
+
 def test_create_swagger_app_supports_keyword_only_request_context() -> None:
     """Keyword-only request factories can create the per-request context."""
     from fastapi import Request
