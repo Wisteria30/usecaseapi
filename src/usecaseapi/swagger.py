@@ -69,6 +69,7 @@ def create_swagger_app(
     """Create the development FastAPI preview app."""
     try:
         from fastapi import FastAPI
+        from fastapi.responses import PlainTextResponse
     except ImportError as exc:
         raise SwaggerPreviewError(
             "FastAPI preview support is not installed. Install it with: uv sync --extra swagger"
@@ -79,6 +80,10 @@ def create_swagger_app(
         version="0.1.0",
         description="Development-only preview server for bound UseCaseAPI usecases.",
     )
+
+    @app.exception_handler(SwaggerPreviewError)
+    async def swagger_preview_error_handler(_: Any, exc: SwaggerPreviewError) -> PlainTextResponse:
+        return PlainTextResponse(str(exc), status_code=500)
 
     for binding in api.bindings:
         ref = binding.ref

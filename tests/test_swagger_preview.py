@@ -20,6 +20,10 @@ class PreviewOutput(Model):
     value: int
 
 
+class MultiplierContext(Model):
+    multiplier: int
+
+
 class PreviewUseCase(UseCase[PreviewInput, PreviewOutput], Protocol):
     async def __call__(self, input: PreviewInput, /) -> PreviewOutput: ...
 
@@ -33,6 +37,15 @@ PREVIEW_USECASE: UseCaseRef[PreviewInput, PreviewOutput] = define_usecase(
 class PreviewImpl:
     async def __call__(self, input: PreviewInput, /) -> PreviewOutput:
         return PreviewOutput(value=input.value + 1)
+
+
+class ContextImpl:
+    def __init__(self, multiplier: int) -> None:
+        """Create a preview implementation that multiplies input values."""
+        self.multiplier = multiplier
+
+    async def __call__(self, input: PreviewInput, /) -> PreviewOutput:
+        return PreviewOutput(value=input.value * self.multiplier)
 
 
 def make_bound_api() -> UseCaseAPI[None]:
@@ -117,6 +130,51 @@ def test_create_swagger_app_supports_keyword_only_request_context() -> None:
 
     assert response.status_code == 200
     assert response.json() == {"value": 10}
+
+
+def test_request_headers_can_drive_preview_context() -> None:
+    """Preview context factories can read the current HTTP request."""
+    from fastapi import Request
+    from fastapi.testclient import TestClient
+
+    from usecaseapi.swagger import create_swagger_app
+
+    api = UseCaseAPI[MultiplierContext]()
+    api.bind(PREVIEW_USECASE, lambda caller: ContextImpl(caller.context.multiplier))
+
+    async def create_context(request: Request) -> MultiplierContext:
+        return MultiplierContext(multiplier=int(request.headers["x-multiplier"]))
+
+    client = TestClient(create_swagger_app(api=api, create_context=create_context))
+
+    response = client.post(
+        "/_usecases/preview.run/v1/call",
+        json={"value": 3},
+        headers={"x-multiplier": "4"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"value": 12}
+
+
+def test_context_factory_rejects_unsupported_signature() -> None:
+    """Preview context factories must have a supported signature."""
+    from fastapi.testclient import TestClient
+
+    from usecaseapi.swagger import create_swagger_app
+
+    def create_context(first: object, second: object) -> None:
+        raise AssertionError("unsupported context factory should not be called")
+
+    client = TestClient(
+        create_swagger_app(api=make_bound_api(), create_context=create_context),
+        raise_server_exceptions=False,
+    )
+
+    response = client.post("/_usecases/preview.run/v1/call", json={"value": 1})
+
+    assert response.status_code == 500
+    assert "create_context must accept zero arguments or one request argument" in response.text
 
 
 def test_create_swagger_app_reports_missing_fastapi(monkeypatch: pytest.MonkeyPatch) -> None:
