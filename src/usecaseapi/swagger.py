@@ -4,15 +4,17 @@ from __future__ import annotations
 
 import importlib
 import importlib.util
+import inspect
 import sys
 
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
 from typing import Any
 
 from .api import UseCaseAPI
+from .contracts import UseCaseRef
 from .errors import UseCaseAPIError
 
 PREVIEW_MODULE_CANDIDATES = (
@@ -57,6 +59,126 @@ def load_preview(preview: str | None) -> PreviewConfig:
     if create_context is not None and not callable(create_context):
         raise SwaggerPreviewError("preview module export 'create_context' must be callable")
     return PreviewConfig(api=api, create_context=create_context, module=module)
+
+
+def create_swagger_app(
+    *,
+    api: UseCaseAPI[Any],
+    create_context: Callable[..., Any] | None,
+) -> Any:
+    """Create the development FastAPI preview app."""
+    try:
+        from fastapi import FastAPI
+    except ImportError as exc:
+        raise SwaggerPreviewError(
+            "FastAPI preview support is not installed. Install it with: uv sync --extra swagger"
+        ) from exc
+
+    app = FastAPI(
+        title="UseCaseAPI Swagger Preview",
+        version="0.1.0",
+        description="Development-only preview server for bound UseCaseAPI usecases.",
+    )
+
+    for binding in api.bindings:
+        ref = binding.ref
+        app.post(
+            preview_route_path(ref),
+            name=ref.contract.name,
+            operation_id=preview_operation_id(ref),
+            response_model=ref.contract.output,
+        )(make_usecase_endpoint(api=api, ref=ref, create_context=create_context))
+
+    return app
+
+
+def preview_route_path(ref: UseCaseRef[Any, Any]) -> str:
+    """Return the canonical preview route path for a usecase."""
+    return f"/_usecases/{ref.contract.name}/v{ref.contract.version}/call"
+
+
+def preview_operation_id(ref: UseCaseRef[Any, Any]) -> str:
+    """Return the OpenAPI operation id used by the preview app."""
+    return ref.contract.name.replace(".", "_") + f"_v{ref.contract.version}_call"
+
+
+def make_usecase_endpoint(
+    *,
+    api: UseCaseAPI[Any],
+    ref: UseCaseRef[Any, Any],
+    create_context: Callable[..., Any] | None,
+) -> Callable[..., Awaitable[Any]]:
+    """Create one FastAPI endpoint function for a bound usecase."""
+    from fastapi import Request
+
+    async def endpoint(input: Any, request: Request) -> Any:
+        context = await resolve_context(create_context, request)
+        return await api.caller(context).call(ref, input)
+
+    endpoint.__name__ = preview_operation_id(ref)
+    endpoint.__signature__ = inspect.Signature(  # type: ignore[attr-defined]
+        parameters=[
+            inspect.Parameter(
+                "input",
+                inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                annotation=ref.contract.input,
+            ),
+            inspect.Parameter(
+                "request",
+                inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                annotation=Request,
+            ),
+        ],
+        return_annotation=ref.contract.output,
+    )
+    return endpoint
+
+
+async def resolve_context(create_context: Callable[..., Any] | None, request: Any) -> Any:
+    """Create the per-request context used by UseCaseAPI."""
+    if create_context is None:
+        return None
+
+    signature = inspect.signature(create_context)
+    positional_parameters = [
+        parameter
+        for parameter in signature.parameters.values()
+        if parameter.kind
+        in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
+    ]
+    keyword_only_parameters = [
+        parameter
+        for parameter in signature.parameters.values()
+        if parameter.kind is inspect.Parameter.KEYWORD_ONLY
+    ]
+    required_positional_parameters = [
+        parameter
+        for parameter in positional_parameters
+        if parameter.default is inspect.Parameter.empty
+    ]
+    required_keyword_only_parameters = [
+        parameter
+        for parameter in keyword_only_parameters
+        if parameter.default is inspect.Parameter.empty
+    ]
+
+    if not required_positional_parameters and not required_keyword_only_parameters:
+        value = create_context()
+    elif len(required_positional_parameters) == 1 and not required_keyword_only_parameters:
+        value = create_context(request)
+    elif (
+        not required_positional_parameters
+        and len(required_keyword_only_parameters) == 1
+        and required_keyword_only_parameters[0].name == "request"
+    ):
+        value = create_context(request=request)
+    else:
+        raise SwaggerPreviewError(
+            "create_context must accept zero arguments or one request argument"
+        )
+    if inspect.isawaitable(value):
+        return await value
+    return value
 
 
 def import_preview_module(preview: str | None) -> ModuleType:
