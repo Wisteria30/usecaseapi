@@ -80,6 +80,7 @@ def create_swagger_app(
         version="0.1.0",
         description="Development-only preview server for bound UseCaseAPI usecases.",
     )
+    register_domain_error_handler(app)
 
     @app.exception_handler(SwaggerPreviewError)
     async def swagger_preview_error_handler(_: Any, exc: SwaggerPreviewError) -> PlainTextResponse:
@@ -95,6 +96,31 @@ def create_swagger_app(
         )(make_usecase_endpoint(api=api, ref=ref, create_context=create_context))
 
     return app
+
+
+def register_domain_error_handler(app: Any) -> None:
+    """Register the preview JSON response for contracted domain errors."""
+    from fastapi.encoders import jsonable_encoder
+    from fastapi.responses import JSONResponse
+
+    from .errors import UseCaseError
+
+    @app.exception_handler(UseCaseError)  # type: ignore[untyped-decorator]
+    async def domain_error_handler(_: Any, exc: UseCaseError) -> JSONResponse:
+        return JSONResponse(
+            status_code=400,
+            content=jsonable_encoder(domain_error_envelope(exc)),
+        )
+
+
+def domain_error_envelope(error: Any) -> dict[str, Any]:
+    """Return the explicit JSON envelope for a domain error."""
+    return {
+        "code": error.code,
+        "error": type(error).__name__,
+        "message": str(error),
+        "payload": dict(error.details),
+    }
 
 
 def preview_route_path(ref: UseCaseRef[Any, Any]) -> str:

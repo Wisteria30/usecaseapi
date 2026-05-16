@@ -4,11 +4,19 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Protocol
+from typing import ClassVar, Protocol
 
 import pytest
 
-from usecaseapi import Contract, Model, UseCase, UseCaseAPI, UseCaseRef, define_usecase
+from usecaseapi import (
+    Contract,
+    Model,
+    UseCase,
+    UseCaseAPI,
+    UseCaseError,
+    UseCaseRef,
+    define_usecase,
+)
 from usecaseapi.swagger import SwaggerPreviewError, discover_preview_module, load_preview
 
 
@@ -37,6 +45,20 @@ PREVIEW_USECASE: UseCaseRef[PreviewInput, PreviewOutput] = define_usecase(
 class PreviewImpl:
     async def __call__(self, input: PreviewInput, /) -> PreviewOutput:
         return PreviewOutput(value=input.value + 1)
+
+
+class PreviewRejected(UseCaseError):
+    code: ClassVar[str] = "preview.rejected"
+
+    def __init__(self, *, reason: str) -> None:
+        """Create a rejected preview domain error."""
+        self.reason = reason
+        super().__init__(reason)
+
+
+class RejectingImpl:
+    async def __call__(self, input: PreviewInput, /) -> PreviewOutput:
+        raise PreviewRejected(reason="not allowed")
 
 
 class ContextImpl:
@@ -88,6 +110,38 @@ def test_create_swagger_app_calls_bound_usecase() -> None:
 
     assert response.status_code == 200
     assert response.json() == {"value": 5}
+
+
+def test_domain_errors_are_returned_as_envelopes() -> None:
+    """Domain errors are serialized as explicit JSON envelopes."""
+    from fastapi.testclient import TestClient
+
+    from usecaseapi.swagger import create_swagger_app
+
+    ref: UseCaseRef[PreviewInput, PreviewOutput] = define_usecase(
+        PreviewUseCase,
+        Contract(
+            name="preview.reject",
+            version=1,
+            input=PreviewInput,
+            output=PreviewOutput,
+            raises=(PreviewRejected,),
+            known_errors=(PreviewRejected,),
+        ),
+    )
+    api = UseCaseAPI[None]()
+    api.bind(ref, lambda caller: RejectingImpl())
+    client = TestClient(create_swagger_app(api=api, create_context=None))
+
+    response = client.post("/_usecases/preview.reject/v1/call", json={"value": 1})
+
+    assert response.status_code == 400
+    assert response.json() == {
+        "code": "preview.rejected",
+        "error": "PreviewRejected",
+        "message": "not allowed",
+        "payload": {"reason": "not allowed"},
+    }
 
 
 def test_swagger_docs_include_usecase_path() -> None:
