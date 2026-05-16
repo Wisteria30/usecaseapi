@@ -254,3 +254,51 @@ def test_create_swagger_app_reports_missing_fastapi(monkeypatch: pytest.MonkeyPa
 
     with pytest.raises(SwaggerPreviewError, match="uv sync --extra swagger"):
         create_swagger_app(api=make_bound_api(), create_context=None)
+
+
+def test_swagger_cli_starts_preview_server(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The swagger CLI command starts the local preview server with defaults."""
+    from usecaseapi.cli import main
+
+    preview_path = tmp_path / "usecaseapi_preview.py"
+    preview_path.write_text(
+        "from tests.test_swagger_preview import make_bound_api\napi = make_bound_api()\n"
+    )
+    monkeypatch.chdir(tmp_path)
+    called: dict[str, object] = {}
+
+    def fake_serve_swagger_preview(*, preview: str | None, host: str, port: int) -> None:
+        called["preview"] = preview
+        called["host"] = host
+        called["port"] = port
+
+    monkeypatch.setattr("usecaseapi.swagger.serve_swagger_preview", fake_serve_swagger_preview)
+
+    assert main(["swagger"]) == 0
+    assert called == {"preview": None, "host": "127.0.0.1", "port": 8000}
+
+
+def test_swagger_cli_reports_missing_preview_module() -> None:
+    """A missing preview module is reported through the CLI error path."""
+    from usecaseapi.cli import main
+
+    assert main(["swagger", "--preview", "definitely_missing_preview_module_123"]) == 2
+
+
+def test_swagger_cli_propagates_unrelated_usecaseapi_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Only Swagger preview errors are converted into CLI argument errors."""
+    from usecaseapi.cli import main
+    from usecaseapi.errors import UseCaseAPIError
+
+    class UnrelatedUseCaseAPIError(UseCaseAPIError):
+        """UseCaseAPI error outside the Swagger preview boundary."""
+
+    def fake_serve_swagger_preview(*, preview: str | None, host: str, port: int) -> None:
+        raise UnrelatedUseCaseAPIError("internal failure")
+
+    monkeypatch.setattr("usecaseapi.swagger.serve_swagger_preview", fake_serve_swagger_preview)
+
+    with pytest.raises(UnrelatedUseCaseAPIError):
+        main(["swagger"])

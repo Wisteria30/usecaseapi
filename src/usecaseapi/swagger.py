@@ -98,6 +98,22 @@ def create_swagger_app(
     return app
 
 
+def serve_swagger_preview(*, preview: str | None, host: str, port: int) -> None:
+    """Start the blocking development Swagger preview server."""
+    try:
+        import uvicorn
+    except ImportError as exc:
+        raise SwaggerPreviewError(
+            "Uvicorn preview support is not installed. Install it with: uv sync --extra swagger"
+        ) from exc
+
+    config = load_preview(preview)
+    app = create_swagger_app(api=config.api, create_context=config.create_context)
+    print("UseCaseAPI Swagger preview running at:")
+    print(f"  http://{host}:{port}/docs")
+    uvicorn.run(app, host=host, port=port)
+
+
 def register_domain_error_handler(app: Any) -> None:
     """Register the preview JSON response for contracted domain errors."""
     from fastapi.encoders import jsonable_encoder
@@ -223,7 +239,12 @@ def import_preview_module(preview: str | None) -> ModuleType:
             raise SwaggerPreviewError(f"preview path {preview!r} is not a file")
         return import_preview_file(path)
 
-    return importlib.import_module(preview)
+    try:
+        return importlib.import_module(preview)
+    except ModuleNotFoundError as exc:
+        if exc.name == preview or (exc.name is not None and preview.startswith(exc.name + ".")):
+            raise SwaggerPreviewError(f"preview module does not exist: {preview}") from exc
+        raise
 
 
 def import_preview_file(path: Path) -> ModuleType:
