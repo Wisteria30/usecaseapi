@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "usecaseapi"
-version = "2.0.1"
+version = "2.0.2"
 description = "Code-first, OpenAPI-inspired contracts for same-process Python use cases."
 readme = "README.md"
 license = "MIT"
@@ -52,6 +52,13 @@ dev = [
   "coverage>=7.12.0",
   "twine>=6.2.0",
   "types-pyyaml>=6.0.12",
+  "fastapi>=0.115,<1",
+  "uvicorn>=0.30,<1",
+  "httpx>=0.27,<1",
+]
+swagger = [
+  "fastapi>=0.115,<1",
+  "uvicorn>=0.30,<1",
 ]
 
 [project.urls]

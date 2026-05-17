@@ -93,6 +93,30 @@ def scaffold(
 
 
 @app.command()
+def swagger(
+    preview: Annotated[
+        str | None,
+        typer.Option("--preview", help="Preview module name or Python file path"),
+    ] = None,
+    host: Annotated[
+        str,
+        typer.Option(help="Host for the local preview server"),
+    ] = "127.0.0.1",
+    port: Annotated[
+        int,
+        typer.Option(help="Port for the local preview server"),
+    ] = 8000,
+) -> None:
+    """Start the local Swagger preview server."""
+    from .swagger import SwaggerPreviewError, serve_swagger_preview
+
+    try:
+        serve_swagger_preview(preview=preview, host=host, port=port)
+    except SwaggerPreviewError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+
+
+@app.command()
 def inspect(
     target: Annotated[str, typer.Argument(help="Import path like 'composition:usecases'")],
 ) -> None:

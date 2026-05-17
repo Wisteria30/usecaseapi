@@ -48,6 +48,7 @@ It is designed for applications with many internal use case nodes: workflow-like
 - **Versioned identity**: identify contracts as stable names such as `commerce.place_order@v1`.
 - **Manifest artifacts**: generate a YAML catalog, conservative diffs, Markdown docs, and Mermaid graphs.
 - **CLI scaffolding**: create a contract, implementation, and test layout from one command.
+- **Swagger preview**: run `usecaseapi swagger` for a development-only Swagger UI that can execute bound usecases. See [docs/swagger-preview.md](docs/swagger-preview.md).
 - **Typed distribution**: ships `py.typed` for downstream type checkers.
 
 ## Requirements
