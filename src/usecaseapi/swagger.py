@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import base64
 import importlib
 import importlib.util
 import inspect
+import re
 import socket
 import sys
 
@@ -27,6 +29,7 @@ PREVIEW_MODULE_CANDIDATES = (
     Path("preview.py"),
 )
 API_EXPORT_NAMES = ("api", "usecases")
+ROUTE_SAFE_CONTRACT_NAME = re.compile(r"^[A-Za-z0-9._-]+$")
 
 
 class SwaggerPreviewError(UseCaseAPIError):
@@ -176,7 +179,15 @@ def domain_error_envelope(error: Any) -> dict[str, Any]:
 
 def preview_route_path(ref: UseCaseRef[Any, Any]) -> str:
     """Return the canonical preview route path for a usecase."""
-    return f"/_usecases/{ref.contract.name}/v{ref.contract.version}/call"
+    return f"/_usecases/{preview_route_name(ref.contract.name)}/v{ref.contract.version}/call"
+
+
+def preview_route_name(contract_name: str) -> str:
+    """Return a URL-safe route segment for a contract name."""
+    if ROUTE_SAFE_CONTRACT_NAME.fullmatch(contract_name):
+        return contract_name
+    encoded = base64.urlsafe_b64encode(contract_name.encode()).decode().rstrip("=")
+    return f"~{encoded}"
 
 
 def preview_operation_id(ref: UseCaseRef[Any, Any]) -> str:

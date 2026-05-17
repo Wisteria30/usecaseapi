@@ -206,6 +206,30 @@ def test_swagger_docs_include_usecase_path() -> None:
     assert "/_usecases/preview.run/v1/call" in response.json()["paths"]
 
 
+def test_swagger_route_path_encodes_reserved_contract_name_syntax() -> None:
+    """Contract names containing path syntax still produce callable preview routes."""
+    from fastapi.testclient import TestClient
+
+    from usecaseapi.swagger import create_swagger_app, preview_route_name
+
+    ref: UseCaseRef[PreviewInput, PreviewOutput] = define_usecase(
+        PreviewUseCase,
+        Contract(name="preview/{tenant}/run", version=1, input=PreviewInput, output=PreviewOutput),
+    )
+    api = UseCaseAPI[None]()
+    api.bind(ref, lambda caller: PreviewImpl())
+    client = TestClient(create_swagger_app(api=api, create_context=None))
+    route_name = preview_route_name(ref.contract.name)
+    route_path = f"/_usecases/{route_name}/v1/call"
+
+    response = client.post(route_path, json={"value": 4})
+
+    assert route_name == "~cHJldmlldy97dGVuYW50fS9ydW4"
+    assert response.status_code == 200
+    assert response.json() == {"value": 5}
+    assert route_path in client.get("/openapi.json").json()["paths"]
+
+
 def test_swagger_docs_include_preview_scenario_header_parameter() -> None:
     """FastAPI OpenAPI output exposes the preview scenario header."""
     from fastapi.testclient import TestClient
