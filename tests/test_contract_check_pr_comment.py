@@ -11,9 +11,7 @@ from types import ModuleType
 
 import pytest
 
-SCRIPT_PATH = (
-    Path(__file__).resolve().parents[1] / "scripts" / "write_contract_check_pr_comment.py"
-)
+SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "write_contract_check_pr_comment.py"
 
 
 def load_script() -> ModuleType:
@@ -97,9 +95,7 @@ def test_upsert_comment_updates_existing_comment(monkeypatch: pytest.MonkeyPatch
             return subprocess.CompletedProcess(
                 command,
                 0,
-                stdout=json.dumps(
-                    [{"id": 123, "body": "old <!-- usecaseapi-contract-check -->"}]
-                ),
+                stdout=json.dumps([{"id": 123, "body": "old <!-- usecaseapi-contract-check -->"}]),
             )
         return subprocess.CompletedProcess(command, 0, stdout="")
 
