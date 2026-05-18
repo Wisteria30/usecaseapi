@@ -32,7 +32,7 @@ def test_contract_check_action_requires_target_and_sets_defaults() -> None:
     assert inputs["artifact-name"]["required"] is False
     assert inputs["artifact-name"]["default"] == "usecaseapi-contract-check"
     assert inputs["comment-on-pr"]["required"] is False
-    assert inputs["comment-on-pr"]["default"] == "true"
+    assert inputs["comment-on-pr"]["default"] == "false"
     assert action["runs"]["using"] == "composite"
 
 

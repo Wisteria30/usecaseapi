@@ -15,7 +15,7 @@ inputs:
   comment-on-pr:
     description: Write the Markdown report as a pull request comment.
     required: false
-    default: "true"
+    default: "false"
 runs:
   using: composite
   steps:
