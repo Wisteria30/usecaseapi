@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+import pytest
 import yaml
 
 WORKFLOW_PATH = Path(__file__).resolve().parents[1] / ".github" / "workflows" / "release.yml"
@@ -79,7 +80,7 @@ def test_ci_contract_check_job_uses_local_action_after_dependency_sync() -> None
     }
 
 
-def test_ci_uses_setup_uv_for_python_versions() -> None:
+def test_ci_does_not_use_separate_python_setup_action() -> None:
     """CI delegates Python setup to setup-uv instead of a separate Python action."""
     workflow = load_ci_workflow()
 
@@ -87,11 +88,28 @@ def test_ci_uses_setup_uv_for_python_versions() -> None:
         steps = job["steps"]
         assert all(step.get("uses") != "actions/setup-python@v6" for step in steps)
 
-    test_steps = workflow["jobs"]["test"]["steps"]
-    test_uv = next(step for step in test_steps if step.get("uses") == "astral-sh/setup-uv@v8.1.0")
-    assert test_uv["with"]["python-version"] == "${{ matrix.python-version }}"
 
-    for job_name in ("coverage-report", "contract-check", "quality", "package"):
-        steps = workflow["jobs"][job_name]["steps"]
-        uv_step = next(step for step in steps if step.get("uses") == "astral-sh/setup-uv@v8.1.0")
-        assert uv_step["with"]["python-version"] == "3.13"
+@pytest.mark.parametrize(
+    ("job_name", "expected_python_version"),
+    [
+        ("test", "${{ matrix.python-version }}"),
+        ("coverage-report", "3.13"),
+        ("contract-check", "3.13"),
+        ("quality", "3.13"),
+        ("package", "3.13"),
+    ],
+)
+def test_ci_uses_setup_uv_for_python_versions(
+    job_name: str,
+    expected_python_version: str,
+) -> None:
+    """CI declares Python versions through setup-uv for each job."""
+    # Given
+    workflow = load_ci_workflow()
+    steps = workflow["jobs"][job_name]["steps"]
+
+    # When
+    uv_step = next(step for step in steps if step.get("uses") == "astral-sh/setup-uv@v8.1.0")
+
+    # Then
+    assert uv_step["with"]["python-version"] == expected_python_version

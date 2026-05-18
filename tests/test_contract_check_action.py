@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, cast
 
+import pytest
 import yaml
 
 ACTION_PATH = Path(__file__).resolve().parents[1] / "actions" / "contract-check" / "action.yml"
@@ -23,17 +24,41 @@ def step_by_name(action: dict[str, Any], name: str) -> dict[str, Any]:
 
 def test_contract_check_action_requires_target_and_sets_defaults() -> None:
     """The action exposes the required target input and documented defaults."""
+    # Given
+    action = load_action()
+
+    # When / Then
+    assert action["runs"]["using"] == "composite"
+
+
+@pytest.mark.parametrize(
+    ("input_name", "required", "default"),
+    [
+        ("target", True, None),
+        ("manifest", False, "usecaseapi.yaml"),
+        ("artifact-name", False, "usecaseapi-contract-check"),
+        ("comment-on-pr", False, "false"),
+    ],
+)
+def test_contract_check_action_input_contract(
+    input_name: str,
+    required: bool,
+    default: str | None,
+) -> None:
+    """The action input contract stays stable for workflow users."""
+    # Given
     action = load_action()
     inputs = cast(dict[str, dict[str, Any]], action["inputs"])
 
-    assert inputs["target"]["required"] is True
-    assert inputs["manifest"]["required"] is False
-    assert inputs["manifest"]["default"] == "usecaseapi.yaml"
-    assert inputs["artifact-name"]["required"] is False
-    assert inputs["artifact-name"]["default"] == "usecaseapi-contract-check"
-    assert inputs["comment-on-pr"]["required"] is False
-    assert inputs["comment-on-pr"]["default"] == "false"
-    assert action["runs"]["using"] == "composite"
+    # When
+    input_metadata = inputs[input_name]
+
+    # Then
+    assert input_metadata["required"] is required
+    if default is None:
+        assert "default" not in input_metadata
+    else:
+        assert input_metadata["default"] == default
 
 
 def test_contract_check_action_has_required_steps() -> None:
@@ -66,28 +91,37 @@ def test_contract_check_action_checks_out_pull_request_base() -> None:
 
 def test_contract_check_action_runs_manifest_ci_and_captures_reports() -> None:
     """The action runs manifest ci with head and optional base report paths."""
+    # Given
     action = load_action()
+
+    # When
     step = step_by_name(action, "Run UseCaseAPI contract check")
     script = cast(str, step["run"])
 
+    # Then
     assert step["shell"] == "bash"
     assert step["env"]["INPUT_MANIFEST"] == "${{ inputs.manifest }}"
     assert step["env"]["INPUT_TARGET"] == "${{ inputs.target }}"
-    assert "set -euo pipefail" in script
-    assert "BASE_ARG=()" in script
     assert "${{ inputs.manifest }}" not in script
     assert "${{ inputs.target }}" not in script
-    assert 'BASE_ARG=(--base-manifest "$BASE_PATH")' in script
-    assert 'BASE_PATH="build/usecaseapi-contract-check/base-checkout/$INPUT_MANIFEST"' in script
-    assert 'cp -- "$BASE_PATH" build/usecaseapi-contract-check/base.usecaseapi.yaml' in script
-    assert 'if [ -f "$INPUT_MANIFEST" ]; then' in script
-    assert 'cp -- "$INPUT_MANIFEST" build/usecaseapi-contract-check/head.usecaseapi.yaml' in script
-    assert "usecaseapi manifest ci \\" in script
-    assert '--target "$INPUT_TARGET"' in script
-    assert '--manifest "$INPUT_MANIFEST"' in script
-    assert '"${BASE_ARG[@]}" \\' in script
-    assert "--summary build/usecaseapi-contract-check/contract-check.md" in script
-    assert "--json build/usecaseapi-contract-check/contract-check.json" in script
+
+    expected_fragments = [
+        "set -euo pipefail",
+        "BASE_ARG=()",
+        'BASE_ARG=(--base-manifest "$BASE_PATH")',
+        'BASE_PATH="build/usecaseapi-contract-check/base-checkout/$INPUT_MANIFEST"',
+        'cp -- "$BASE_PATH" build/usecaseapi-contract-check/base.usecaseapi.yaml',
+        'if [ -f "$INPUT_MANIFEST" ]; then',
+        'cp -- "$INPUT_MANIFEST" build/usecaseapi-contract-check/head.usecaseapi.yaml',
+        "usecaseapi manifest ci \\",
+        '--target "$INPUT_TARGET"',
+        '--manifest "$INPUT_MANIFEST"',
+        '"${BASE_ARG[@]}" \\',
+        "--summary build/usecaseapi-contract-check/contract-check.md",
+        "--json build/usecaseapi-contract-check/contract-check.json",
+    ]
+    for fragment in expected_fragments:
+        assert fragment in script
 
 
 def test_contract_check_action_writes_summary_comments_and_uploads_artifact() -> None:
