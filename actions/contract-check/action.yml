@@ -44,7 +44,9 @@ runs:
             BASE_ARG=(--base-manifest "$BASE_PATH")
           fi
         fi
-        cp -- "$INPUT_MANIFEST" build/usecaseapi-contract-check/head.usecaseapi.yaml
+        if [ -f "$INPUT_MANIFEST" ]; then
+          cp -- "$INPUT_MANIFEST" build/usecaseapi-contract-check/head.usecaseapi.yaml
+        fi
         usecaseapi manifest ci \
           --target "$INPUT_TARGET" \
           --manifest "$INPUT_MANIFEST" \

@@ -1687,7 +1687,9 @@ def immutable_usecase_index(manifest: Mapping[str, Any]) -> dict[str, dict[str, 
         post = path_item.get("post")
         if not isinstance(post, Mapping):
             continue
-        extension = required_mapping(post.get("x-usecaseapi"), "x-usecaseapi")
+        extension = post.get("x-usecaseapi")
+        if not isinstance(extension, Mapping) or extension.get("kind") != "usecase":
+            continue
         name = required_string(extension, "name")
         version = required_int(extension, "version")
         identity = f"{name}@v{version}"

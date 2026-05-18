@@ -1085,6 +1085,15 @@ def test_immutable_usecase_index_ignores_non_operation_path_items() -> None:
     paths = cast(dict[str, object], manifest["paths"])
     paths["/_ignored/not-an-object"] = []
     paths["/_ignored/no-post"] = {"get": {"operationId": "ignored"}}
+    paths["/_ignored/post-without-extension"] = {
+        "post": {"operationId": "ignored_without_extension"}
+    }
+    paths["/_ignored/post-with-non-usecase-extension"] = {
+        "post": {
+            "operationId": "ignored_non_usecase",
+            "x-usecaseapi": {"kind": "adapter"},
+        }
+    }
 
     index = manifest_module.immutable_usecase_index(manifest)
 

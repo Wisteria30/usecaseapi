@@ -80,6 +80,7 @@ def test_contract_check_action_runs_manifest_ci_and_captures_reports() -> None:
     assert 'BASE_ARG=(--base-manifest "$BASE_PATH")' in script
     assert 'BASE_PATH="build/usecaseapi-contract-check/base-checkout/$INPUT_MANIFEST"' in script
     assert 'cp -- "$BASE_PATH" build/usecaseapi-contract-check/base.usecaseapi.yaml' in script
+    assert 'if [ -f "$INPUT_MANIFEST" ]; then' in script
     assert 'cp -- "$INPUT_MANIFEST" build/usecaseapi-contract-check/head.usecaseapi.yaml' in script
     assert "usecaseapi manifest ci \\" in script
     assert '--target "$INPUT_TARGET"' in script
