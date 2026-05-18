@@ -1,0 +1,82 @@
+name: UseCaseAPI Contract Check
+description: Validate committed usecaseapi.yaml, check code sync, and guard existing versions.
+inputs:
+  target:
+    description: Python import path for the UseCaseAPI instance, such as composition:usecases.
+    required: true
+  manifest:
+    description: Path to the committed UseCaseAPI manifest.
+    required: false
+    default: usecaseapi.yaml
+  artifact-name:
+    description: Name for uploaded contract check artifacts.
+    required: false
+    default: usecaseapi-contract-check
+  comment-on-pr:
+    description: Write the Markdown report as a pull request comment.
+    required: false
+    default: "false"
+runs:
+  using: composite
+  steps:
+    - name: Prepare output directory
+      shell: bash
+      run: mkdir -p build/usecaseapi-contract-check
+    - name: Check out base manifest
+      if: github.event_name == 'pull_request'
+      uses: actions/checkout@v6
+      with:
+        ref: ${{ github.event.pull_request.base.sha }}
+        path: build/usecaseapi-contract-check/base-checkout
+        persist-credentials: false
+    - name: Run UseCaseAPI contract check
+      shell: bash
+      env:
+        INPUT_MANIFEST: ${{ inputs.manifest }}
+        INPUT_TARGET: ${{ inputs.target }}
+      run: |
+        set -euo pipefail
+        BASE_ARG=()
+        if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+          BASE_PATH="build/usecaseapi-contract-check/base-checkout/$INPUT_MANIFEST"
+          if [ -f "$BASE_PATH" ]; then
+            cp -- "$BASE_PATH" build/usecaseapi-contract-check/base.usecaseapi.yaml
+            BASE_ARG=(--base-manifest "$BASE_PATH")
+          fi
+        fi
+        if [ -f "$INPUT_MANIFEST" ]; then
+          cp -- "$INPUT_MANIFEST" build/usecaseapi-contract-check/head.usecaseapi.yaml
+        fi
+        usecaseapi manifest ci \
+          --target "$INPUT_TARGET" \
+          --manifest "$INPUT_MANIFEST" \
+          "${BASE_ARG[@]}" \
+          --summary build/usecaseapi-contract-check/contract-check.md \
+          --json build/usecaseapi-contract-check/contract-check.json
+    - name: Write step summary
+      if: always()
+      shell: bash
+      run: |
+        if [ -f build/usecaseapi-contract-check/contract-check.md ]; then
+          cat build/usecaseapi-contract-check/contract-check.md >> "$GITHUB_STEP_SUMMARY"
+        fi
+    - name: Comment on pull request
+      if: always() && github.event_name == 'pull_request' && inputs.comment-on-pr == 'true'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        if [ -f build/usecaseapi-contract-check/contract-check.md ]; then
+          python "$GITHUB_ACTION_PATH/../../scripts/write_contract_check_pr_comment.py" \
+            --report build/usecaseapi-contract-check/contract-check.md \
+            --repository "${{ github.repository }}" \
+            --pr-number "${{ github.event.pull_request.number }}"
+        fi
+    - name: Upload contract check artifacts
+      if: always()
+      uses: actions/upload-artifact@v7.0.1
+      with:
+        name: ${{ inputs.artifact-name }}
+        path: build/usecaseapi-contract-check
+        if-no-files-found: error
+        retention-days: 7

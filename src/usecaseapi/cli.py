@@ -15,14 +15,18 @@ import typer
 
 from .api import UseCaseAPI
 from .manifest import (
+    ManifestGuardReport,
     diff_manifest_with_api,
     diff_manifests,
     dump_manifest,
+    guard_manifests,
     load_manifest,
     manifest_from_api,
     manifest_to_yaml,
+    render_contract_check_markdown,
     render_manifest_graph,
     render_manifest_markdown,
+    run_contract_check,
     scaffold_from_manifest,
     validate_manifest,
 )
@@ -232,6 +236,77 @@ def manifest_check_sync(
         echo_diff(manifest_diff.breaking, manifest_diff.warnings, manifest_diff.additions)
         raise typer.Exit(1)
     typer.echo("UseCaseAPI manifest is synchronized")
+
+
+@manifest_app.command("guard")
+def manifest_guard(
+    base: Annotated[Path, typer.Argument(help="Base usecaseapi.yaml path")],
+    head: Annotated[Path, typer.Argument(help="Head usecaseapi.yaml path")],
+    json_output: Annotated[bool, typer.Option("--json", help="Print JSON output")] = False,
+) -> None:
+    """Reject changes to existing usecase contract versions."""
+    report = guard_manifests(load_manifest(base), load_manifest(head))
+    if json_output:
+        typer.echo(json.dumps(report.to_dict(), ensure_ascii=False, indent=2))
+    else:
+        echo_contract_guard(report)
+    if report.failed:
+        raise typer.Exit(1)
+
+
+@manifest_app.command("ci")
+def manifest_ci(
+    target: Annotated[
+        str, typer.Option("--target", help="Import path like 'composition:usecases'")
+    ],
+    manifest: Annotated[
+        Path,
+        typer.Option("--manifest", help="Head usecaseapi.yaml path"),
+    ] = Path("usecaseapi.yaml"),
+    base_manifest: Annotated[Path | None, typer.Option("--base-manifest")] = None,
+    summary: Annotated[Path | None, typer.Option("--summary")] = None,
+    json_report: Annotated[Path | None, typer.Option("--json")] = None,
+) -> None:
+    """Validate committed manifest, check code sync, and guard existing versions."""
+    api: UseCaseAPI[Any] | None = None
+    target_error: str | None = None
+    if manifest.exists():
+        try:
+            api = load_api(target)
+        except (AttributeError, ImportError, TypeError, ValueError) as exc:
+            target_error = f"target load failed: {exc}"
+    report = run_contract_check(
+        target=target,
+        manifest_path=manifest,
+        base_manifest_path=base_manifest,
+        api=api,
+        target_error=target_error,
+    )
+    markdown = render_contract_check_markdown(report)
+    typer.echo(markdown)
+    if summary is not None:
+        summary.parent.mkdir(parents=True, exist_ok=True)
+        summary.write_text(markdown)
+    if json_report is not None:
+        json_report.parent.mkdir(parents=True, exist_ok=True)
+        json_report.write_text(json.dumps(report.to_dict(), ensure_ascii=False, indent=2))
+    if report.failed:
+        raise typer.Exit(1)
+
+
+def echo_contract_guard(report: ManifestGuardReport) -> None:
+    """Print immutable-version guard sections in the CLI format."""
+    for label, items in (
+        ("Removed", report.removed),
+        ("Changed", report.changed),
+        ("Additions", report.added),
+    ):
+        typer.echo(label + ":")
+        if items:
+            for item in items:
+                typer.echo(f"  - {item}")
+        else:
+            typer.echo("  - none")
 
 
 def echo_diff(

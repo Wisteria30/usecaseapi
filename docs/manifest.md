@@ -48,6 +48,18 @@ Check that code and a Manifest describe the same contract catalog:
 usecaseapi manifest check-sync composition:usecases usecaseapi.yaml
 ```
 
+Run the same local contract check used by CI:
+
+```bash
+usecaseapi manifest ci --target composition:usecases --manifest usecaseapi.yaml
+```
+
+Compare two committed Manifest files for version immutability:
+
+```bash
+usecaseapi manifest guard base.yaml head.yaml
+```
+
 Render derived outputs:
 
 ```bash
@@ -149,6 +161,102 @@ Validation has two stages:
 2. Normalize the operations into UseCaseAPI semantic metadata and check contract
    names, keys, model references, type expressions, error boundaries, dependency
    edges, and Python source bindings.
+
+## CI Contract Check
+
+Commit `usecaseapi.yaml` as the canonical contract file for the repository.
+Derived documentation and graphs can be regenerated, but `usecaseapi.yaml`
+is the reviewable source of truth for the application contract catalog.
+
+The CI command validates that file, checks that it still matches the target
+UseCaseAPI composition, and optionally compares it with a base Manifest:
+
+```bash
+usecaseapi manifest ci --target composition:usecases --manifest usecaseapi.yaml
+usecaseapi manifest guard base.yaml head.yaml
+```
+
+The immutability rule is intentionally simple: the same usecase name with the
+same version cannot be changed or removed. Add a new version for breaking
+changes. Adding new usecases or new versions is allowed.
+
+No registration step is required. GitHub automatically provides the workflow
+token, and UseCaseAPI only needs the committed Manifest path and the import path
+for the composed `UseCaseAPI` instance.
+
+For organizations that prefer not to run a third-party composite action, call
+the CLI directly from a normal workflow step:
+
+```yaml
+name: Contracts
+
+on:
+  pull_request:
+
+jobs:
+  contract-check:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v8.1.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+          python-version: "3.13"
+      - run: uv sync --frozen
+      - run: |
+          mkdir -p build/usecaseapi-contract-check
+          uv run usecaseapi manifest ci \
+            --target composition:usecases \
+            --manifest usecaseapi.yaml \
+            --summary build/usecaseapi-contract-check/contract-check.md \
+            --json build/usecaseapi-contract-check/contract-check.json
+```
+
+The reusable GitHub Action is a composite wrapper around the same CLI. Install
+UseCaseAPI and the repository dependencies before calling it; the action does
+not install project dependencies for you.
+
+```yaml
+name: Contracts
+
+on:
+  pull_request:
+
+jobs:
+  contract-check:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v8.1.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+          python-version: "3.13"
+      - run: uv sync --frozen
+      - run: echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+      - uses: Wisteria30/usecaseapi/actions/contract-check@vX
+        with:
+          target: composition:usecases
+          manifest: usecaseapi.yaml
+          comment-on-pr: "false"
+```
+
+Use a released tag or commit SHA instead of `vX`. Pinning to a full commit SHA
+is the strictest option when your organization limits untrusted `uses:` entries.
+Repositories executing pull request head code should keep
+`permissions.contents: read` and `comment-on-pr: "false"` unless they
+intentionally allow the action to write PR comments. When comments are
+intentionally enabled, grant the minimal additional permission required by the
+workflow host.
 
 ## Writing A Manifest Before Code
 

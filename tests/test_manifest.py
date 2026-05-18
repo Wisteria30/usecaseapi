@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import ast
 import inspect
+import json
 
 from collections.abc import Callable
 from copy import deepcopy
 from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
-from typing import Any, ClassVar, Literal, Protocol, get_type_hints
+from typing import Any, ClassVar, Literal, Protocol, cast, get_type_hints
 from uuid import UUID
 
 import pytest
@@ -34,6 +35,7 @@ from usecaseapi.manifest import (
     ManifestError,
     diff_manifests,
     dump_manifest,
+    guard_manifests,
     load_manifest,
     manifest_from_api,
     render_contract_module,
@@ -42,6 +44,10 @@ from usecaseapi.manifest import (
     scaffold_from_manifest,
     validate_manifest,
 )
+
+ManifestCiFailureCase = Callable[
+    [Path], tuple[list[str], tuple[str, ...], tuple[tuple[Path, str], ...]]
+]
 
 
 class Input(Model):
@@ -681,6 +687,390 @@ def test_manifest_diff_reports_model_errors_and_removed_values() -> None:
         "removed declared uses for example.run@v1: other.run@v1",
         "deprecated usecase example.run@v1",
     )
+
+
+def test_manifest_guard_allows_new_usecase_version() -> None:
+    """The immutable guard accepts adding a major version with new error metadata."""
+    base = load_manifest("examples/basic/usecaseapi.yaml")
+    semantic = manifest_module.semantic_from_openapi_manifest(base)
+    source_usecase = next(
+        usecase for usecase in semantic["usecases"] if usecase["key"] == "commerce.place_order@v1"
+    )
+    new_usecase = deepcopy(source_usecase)
+    new_usecase["version"] = 2
+    new_usecase["key"] = str(new_usecase["key"]).replace("@v1", "@v2")
+    semantic["usecases"].append(new_usecase)
+    head = manifest_module.openapi_manifest_from_semantic(semantic)
+
+    report = guard_manifests(base, head)
+
+    assert report.failed is False
+    assert "commerce." in report.added[0]
+    assert report.changed == ()
+    assert report.removed == ()
+
+
+def test_manifest_guard_rejects_removed_existing_version() -> None:
+    """The immutable guard rejects removing an existing usecase version."""
+    base = load_manifest("examples/basic/usecaseapi.yaml")
+    head = deepcopy(base)
+    paths = cast(dict[str, object], head["paths"])
+    removed_path = next(iter(paths))
+    del paths[removed_path]
+
+    report = guard_manifests(base, head)
+
+    assert report.failed is True
+    assert report.removed
+    assert report.changed == ()
+
+
+def test_manifest_guard_rejects_changed_existing_version() -> None:
+    """The immutable guard rejects changing an existing usecase version."""
+    base = load_manifest("examples/basic/usecaseapi.yaml")
+    head = deepcopy(base)
+    paths = cast(dict[str, object], head["paths"])
+    operation = cast(dict[str, object], cast(dict[str, object], next(iter(paths.values())))["post"])
+    operation["summary"] = "changed summary"
+
+    report = guard_manifests(base, head)
+
+    assert report.failed is True
+    assert report.changed
+    assert report.removed == ()
+
+
+def test_manifest_guard_rejects_changed_referenced_root_error_metadata() -> None:
+    """The immutable guard rejects changes to referenced root error metadata."""
+    base = load_manifest("examples/basic/usecaseapi.yaml")
+    head = deepcopy(base)
+    root_extension = cast(dict[str, object], head["x-usecaseapi"])
+    extension_components = cast(dict[str, object], root_extension["components"])
+    errors = cast(dict[str, object], extension_components["errors"])
+    error = cast(dict[str, object], errors["CommercePlaceOrderV1InventoryShortage"])
+    error["description"] = "Changed referenced root error metadata."
+
+    report = guard_manifests(base, head)
+
+    assert report.failed is True
+    assert "commerce.place_order@v1" in report.changed
+    assert report.removed == ()
+
+
+def test_manifest_guard_cli_fails_for_changed_existing_version(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The manifest guard CLI fails when an existing version changes."""
+    base_path = tmp_path / "base.yaml"
+    head_path = tmp_path / "head.yaml"
+    base = load_manifest("examples/basic/usecaseapi.yaml")
+    head = deepcopy(base)
+    paths = cast(dict[str, object], head["paths"])
+    operation = cast(dict[str, object], cast(dict[str, object], next(iter(paths.values())))["post"])
+    operation["summary"] = "changed summary"
+    dump_manifest(base, base_path)
+    dump_manifest(head, head_path)
+
+    assert main(["manifest", "guard", str(base_path), str(head_path)]) == 1
+
+    output = capsys.readouterr().out
+    assert "Removed:" in output
+    assert "Changed:" in output
+    assert "Additions:" in output
+
+
+def test_manifest_guard_cli_passes_for_identical_manifests(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The manifest guard CLI passes and can print JSON for identical manifests."""
+    base_path = tmp_path / "base.yaml"
+    head_path = tmp_path / "head.yaml"
+    manifest = load_manifest("examples/basic/usecaseapi.yaml")
+    dump_manifest(manifest, base_path)
+    dump_manifest(manifest, head_path)
+
+    assert main(["manifest", "guard", str(base_path), str(head_path)]) == 0
+    output = capsys.readouterr().out
+    assert "Removed:" in output
+    assert "Changed:" in output
+    assert "Additions:" in output
+
+    assert main(["manifest", "guard", str(base_path), str(head_path), "--json"]) == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report == {
+        "failed": False,
+        "removed": [],
+        "changed": [],
+        "added": [],
+    }
+
+
+def test_manifest_ci_writes_reports_for_valid_example(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The manifest ci command writes Markdown and JSON reports for a valid catalog."""
+    summary = tmp_path / "contract-check.md"
+    json_report = tmp_path / "contract-check.json"
+    monkeypatch.chdir("examples/basic")
+    monkeypatch.syspath_prepend("src")
+
+    exit_code = main(
+        [
+            "manifest",
+            "ci",
+            "--target",
+            "composition:usecases",
+            "--manifest",
+            "usecaseapi.yaml",
+            "--summary",
+            str(summary),
+            "--json",
+            str(json_report),
+        ]
+    )
+
+    assert exit_code == 0
+    stdout = capsys.readouterr().out
+    markdown = summary.read_text()
+    report = json.loads(json_report.read_text())
+    assert "<!-- usecaseapi-contract-check -->" in stdout
+    assert "Status: Passed" in markdown
+    assert "Manifest: `usecaseapi.yaml`" in markdown
+    assert "Target: `composition:usecases`" in markdown
+    assert report["status"] == "passed"
+    assert report["validation"] == {"manifest": "passed", "sync": "passed"}
+
+
+def manifest_ci_changed_base_case(
+    tmp_path: Path,
+) -> tuple[list[str], tuple[str, ...], tuple[tuple[Path, str], ...]]:
+    """Given a changed base Manifest, return CLI arguments and expected output."""
+    base_path = tmp_path / "base.yaml"
+    base = load_manifest("examples/basic/usecaseapi.yaml")
+    head = deepcopy(base)
+    paths = cast(dict[str, object], base["paths"])
+    operation = cast(dict[str, object], cast(dict[str, object], next(iter(paths.values())))["post"])
+    operation["summary"] = "old summary"
+    dump_manifest(base, base_path)
+    head_path = tmp_path / "usecaseapi.yaml"
+    dump_manifest(head, head_path)
+    return (
+        ["--manifest", str(head_path), "--base-manifest", str(base_path)],
+        ("Status: Failed", "Existing contract versions are immutable"),
+        (),
+    )
+
+
+def manifest_ci_unsynchronized_case(
+    tmp_path: Path,
+) -> tuple[list[str], tuple[str, ...], tuple[tuple[Path, str], ...]]:
+    """Given a changed committed Manifest, return CLI arguments and expected output."""
+    changed = manifest_module.semantic_from_openapi_manifest(
+        load_manifest("examples/basic/usecaseapi.yaml")
+    )
+    changed["usecases"][0]["output"] = "DifferentOutput"
+    changed["usecases"][0]["models"].append({"name": "DifferentOutput", "fields": []})
+    changed_path = tmp_path / "changed.yaml"
+    changed_path.write_text(yaml.safe_dump(changed, sort_keys=False))
+    return (
+        ["--manifest", str(changed_path)],
+        ("Status: Failed", "breaking: changed output model"),
+        (),
+    )
+
+
+def manifest_ci_missing_manifest_case(
+    tmp_path: Path,
+) -> tuple[list[str], tuple[str, ...], tuple[tuple[Path, str], ...]]:
+    """Given a missing Manifest path, return CLI arguments and expected output."""
+    summary = tmp_path / "contract-check.md"
+    missing = tmp_path / "missing.yaml"
+    return (
+        ["--manifest", str(missing), "--summary", str(summary)],
+        ("Status: Failed",),
+        ((summary, str(missing)),),
+    )
+
+
+def manifest_ci_invalid_yaml_case(
+    tmp_path: Path,
+) -> tuple[list[str], tuple[str, ...], tuple[tuple[Path, str], ...]]:
+    """Given an invalid YAML Manifest, return CLI arguments and expected output."""
+    bad_manifest = tmp_path / "bad.yaml"
+    summary = tmp_path / "contract-check.md"
+    json_path = tmp_path / "contract-check.json"
+    bad_manifest.write_text("openapi: [unterminated\n")
+    return (
+        ["--manifest", str(bad_manifest), "--summary", str(summary), "--json", str(json_path)],
+        ("Status: Failed",),
+        ((summary, "Status: Failed"), (json_path, "manifest validation failed")),
+    )
+
+
+def manifest_ci_target_load_failure_case(
+    tmp_path: Path,
+) -> tuple[list[str], tuple[str, ...], tuple[tuple[Path, str], ...]]:
+    """Given an invalid target import, return CLI arguments and expected output."""
+    del tmp_path
+    return (
+        ["--target", "missing_module:usecases", "--manifest", "usecaseapi.yaml"],
+        ("Status: Failed", "target load failed:"),
+        (),
+    )
+
+
+def manifest_ci_missing_base_case(
+    tmp_path: Path,
+) -> tuple[list[str], tuple[str, ...], tuple[tuple[Path, str], ...]]:
+    """Given a missing base Manifest path, return CLI arguments and expected output."""
+    missing_base = tmp_path / "missing-base.yaml"
+    return (
+        ["--manifest", "usecaseapi.yaml", "--base-manifest", str(missing_base)],
+        (f"base manifest not found: {missing_base}",),
+        (),
+    )
+
+
+def manifest_ci_invalid_base_case(
+    tmp_path: Path,
+) -> tuple[list[str], tuple[str, ...], tuple[tuple[Path, str], ...]]:
+    """Given an invalid base Manifest, return CLI arguments and expected output."""
+    bad_base = tmp_path / "bad-base.yaml"
+    bad_base.write_text("openapi: [unterminated\n")
+    return (
+        ["--manifest", "usecaseapi.yaml", "--base-manifest", str(bad_base)],
+        ("base manifest validation failed:",),
+        (),
+    )
+
+
+@pytest.mark.parametrize(
+    ("make_case",),
+    [
+        pytest.param(manifest_ci_changed_base_case, id="changed-base"),
+        pytest.param(manifest_ci_unsynchronized_case, id="unsynchronized-manifest"),
+        pytest.param(manifest_ci_missing_manifest_case, id="missing-manifest"),
+        pytest.param(manifest_ci_invalid_yaml_case, id="invalid-yaml"),
+        pytest.param(manifest_ci_target_load_failure_case, id="target-load-failure"),
+        pytest.param(manifest_ci_missing_base_case, id="missing-base"),
+        pytest.param(manifest_ci_invalid_base_case, id="invalid-base"),
+    ],
+)
+def test_manifest_ci_failure_cases_report_expected_details(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+    make_case: ManifestCiFailureCase,
+) -> None:
+    """The manifest ci command reports each failure mode in a readable form."""
+    # Given
+    extra_args, stdout_fragments, file_expectations = make_case(tmp_path)
+    monkeypatch.chdir("examples/basic")
+    monkeypatch.syspath_prepend("src")
+
+    # When
+    exit_code = main(
+        [
+            "manifest",
+            "ci",
+            "--target",
+            "composition:usecases",
+            *extra_args,
+        ]
+    )
+
+    # Then
+    assert exit_code == 1
+    output = capsys.readouterr().out
+    for fragment in stdout_fragments:
+        assert fragment in output
+    for path, fragment in file_expectations:
+        assert fragment in path.read_text()
+
+
+def test_contract_check_markdown_lists_added_versions() -> None:
+    """The contract check report renders allowed additions distinctly from failures."""
+    base = load_manifest("examples/basic/usecaseapi.yaml")
+    semantic = manifest_module.semantic_from_openapi_manifest(base)
+    source_usecase = next(
+        usecase for usecase in semantic["usecases"] if usecase["key"] == "commerce.place_order@v1"
+    )
+    new_usecase = deepcopy(source_usecase)
+    new_usecase["version"] = 2
+    new_usecase["key"] = "commerce.place_order@v2"
+    semantic["usecases"].append(new_usecase)
+    head = manifest_module.openapi_manifest_from_semantic(semantic)
+
+    report = manifest_module.ContractCheckReport(
+        manifest="usecaseapi.yaml",
+        target="composition:usecases",
+        manifest_valid=True,
+        synchronized=True,
+        guard=guard_manifests(base, head),
+        errors=(),
+    )
+
+    markdown = manifest_module.render_contract_check_markdown(report)
+
+    assert "Failures:\n- none" in markdown
+    assert "Additions:\n- `commerce.place_order@v2`" in markdown
+
+
+def test_immutable_usecase_index_ignores_non_operation_path_items() -> None:
+    """The immutable index only includes POST usecase operations."""
+    manifest = deepcopy(load_manifest("examples/basic/usecaseapi.yaml"))
+    paths = cast(dict[str, object], manifest["paths"])
+    paths["/_ignored/not-an-object"] = []
+    paths["/_ignored/no-post"] = {"get": {"operationId": "ignored"}}
+    paths["/_ignored/post-without-extension"] = {
+        "post": {"operationId": "ignored_without_extension"}
+    }
+    paths["/_ignored/post-with-non-usecase-extension"] = {
+        "post": {
+            "operationId": "ignored_non_usecase",
+            "x-usecaseapi": {"kind": "adapter"},
+        }
+    }
+
+    index = manifest_module.immutable_usecase_index(manifest)
+
+    assert "commerce.check_availability@v1" in index
+    assert all(not key.startswith("_ignored") for key in index)
+
+
+def test_reachable_component_refs_handles_cycles_once() -> None:
+    """Reachable component discovery terminates on recursive local references."""
+    manifest = {
+        "components": {
+            "schemas": {
+                "A": {"$ref": "#/components/schemas/B"},
+                "B": {"$ref": "#/components/schemas/A"},
+            }
+        }
+    }
+    operation = {"requestBody": {"$ref": "#/components/schemas/A"}}
+
+    refs = manifest_module._reachable_component_refs(manifest=manifest, operation=operation)
+
+    assert refs == {("schemas", "A"), ("schemas", "B")}
+
+
+def test_root_error_metadata_and_ref_helpers_handle_empty_or_invalid_values() -> None:
+    """Private normalization helpers reject non-component refs without fallback behavior."""
+    assert manifest_module._referenced_error_metadata(root_extension={}, refs=set()) == {}
+    assert (
+        manifest_module._referenced_error_metadata(
+            root_extension={"components": {"errors": []}},
+            refs=set(),
+        )
+        == {}
+    )
+    assert manifest_module._local_component_ref_from_string("#/components/schemas") is None
+    assert manifest_module.sort_json_like(("b", {"z": 1, "a": 2})) == ["b", {"a": 2, "z": 1}]
 
 
 def test_manifest_cli_uses_yaml_for_export_validate_scaffold_docs_graph_and_diff(
