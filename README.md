@@ -202,6 +202,10 @@ usecaseapi manifest validate usecaseapi.yaml
 usecaseapi manifest check-sync composition:usecases usecaseapi.yaml
 ```
 
+Use the contract check CLI and GitHub Action to keep the committed
+`usecaseapi.yaml` immutable for existing usecase versions. See
+[docs/manifest.md#ci-contract-check](docs/manifest.md#ci-contract-check).
+
 Generate Python contract, implementation, and pytest skeletons from the catalog:
 
 ```bash
