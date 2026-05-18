@@ -10,7 +10,7 @@ from copy import deepcopy
 from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
-from typing import Any, ClassVar, Literal, Protocol, get_type_hints
+from typing import Any, ClassVar, Literal, Protocol, cast, get_type_hints
 from uuid import UUID
 
 import pytest
@@ -34,6 +34,7 @@ from usecaseapi.manifest import (
     ManifestError,
     diff_manifests,
     dump_manifest,
+    guard_manifests,
     load_manifest,
     manifest_from_api,
     render_contract_module,
@@ -681,6 +682,74 @@ def test_manifest_diff_reports_model_errors_and_removed_values() -> None:
         "removed declared uses for example.run@v1: other.run@v1",
         "deprecated usecase example.run@v1",
     )
+
+
+def test_manifest_guard_allows_new_usecase_version() -> None:
+    """The immutable guard accepts adding a major version with new error metadata."""
+    base = load_manifest("examples/basic/usecaseapi.yaml")
+    semantic = manifest_module.semantic_from_openapi_manifest(base)
+    source_usecase = next(
+        usecase for usecase in semantic["usecases"] if usecase["key"] == "commerce.place_order@v1"
+    )
+    new_usecase = deepcopy(source_usecase)
+    new_usecase["version"] = 2
+    new_usecase["key"] = str(new_usecase["key"]).replace("@v1", "@v2")
+    semantic["usecases"].append(new_usecase)
+    head = manifest_module.openapi_manifest_from_semantic(semantic)
+
+    report = guard_manifests(base, head)
+
+    assert report.failed is False
+    assert "commerce." in report.added[0]
+    assert report.changed == ()
+    assert report.removed == ()
+
+
+def test_manifest_guard_rejects_removed_existing_version() -> None:
+    """The immutable guard rejects removing an existing usecase version."""
+    base = load_manifest("examples/basic/usecaseapi.yaml")
+    head = deepcopy(base)
+    paths = cast(dict[str, object], head["paths"])
+    removed_path = next(iter(paths))
+    del paths[removed_path]
+
+    report = guard_manifests(base, head)
+
+    assert report.failed is True
+    assert report.removed
+    assert report.changed == ()
+
+
+def test_manifest_guard_rejects_changed_existing_version() -> None:
+    """The immutable guard rejects changing an existing usecase version."""
+    base = load_manifest("examples/basic/usecaseapi.yaml")
+    head = deepcopy(base)
+    paths = cast(dict[str, object], head["paths"])
+    operation = cast(dict[str, object], cast(dict[str, object], next(iter(paths.values())))["post"])
+    operation["summary"] = "changed summary"
+
+    report = guard_manifests(base, head)
+
+    assert report.failed is True
+    assert report.changed
+    assert report.removed == ()
+
+
+def test_manifest_guard_rejects_changed_referenced_root_error_metadata() -> None:
+    """The immutable guard rejects changes to referenced root error metadata."""
+    base = load_manifest("examples/basic/usecaseapi.yaml")
+    head = deepcopy(base)
+    root_extension = cast(dict[str, object], head["x-usecaseapi"])
+    extension_components = cast(dict[str, object], root_extension["components"])
+    errors = cast(dict[str, object], extension_components["errors"])
+    error = cast(dict[str, object], errors["CommercePlaceOrderV1InventoryShortage"])
+    error["description"] = "Changed referenced root error metadata."
+
+    report = guard_manifests(base, head)
+
+    assert report.failed is True
+    assert "commerce.place_order@v1" in report.changed
+    assert report.removed == ()
 
 
 def test_manifest_cli_uses_yaml_for_export_validate_scaffold_docs_graph_and_diff(

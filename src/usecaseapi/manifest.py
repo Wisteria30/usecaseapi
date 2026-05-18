@@ -86,6 +86,29 @@ class ManifestDiff:
         }
 
 
+@dataclass(frozen=True, slots=True)
+class ManifestGuardReport:
+    """Immutable-version guard result for two UseCaseAPI manifests."""
+
+    removed: tuple[str, ...]
+    changed: tuple[str, ...]
+    added: tuple[str, ...]
+
+    @property
+    def failed(self) -> bool:
+        """Whether immutable contract versions were removed or changed."""
+        return bool(self.removed or self.changed)
+
+    def to_dict(self) -> dict[str, list[str] | bool]:
+        """Return a JSON-friendly representation."""
+        return {
+            "failed": self.failed,
+            "removed": list(self.removed),
+            "changed": list(self.changed),
+            "added": list(self.added),
+        }
+
+
 def manifest_from_api(
     api: UseCaseAPI[Any],
     *,
@@ -1476,6 +1499,165 @@ def diff_manifests(old: Mapping[str, Any], new: Mapping[str, Any]) -> ManifestDi
         warnings=tuple(warnings),
         additions=tuple(additions),
     )
+
+
+def guard_manifests(base: Mapping[str, Any], head: Mapping[str, Any]) -> ManifestGuardReport:
+    """Reject removals or changes to existing usecase name/version contracts."""
+    validate_manifest(base)
+    validate_manifest(head)
+    base_cases = immutable_usecase_index(base)
+    head_cases = immutable_usecase_index(head)
+    removed = tuple(sorted(set(base_cases) - set(head_cases)))
+    added = tuple(sorted(set(head_cases) - set(base_cases)))
+    changed = tuple(
+        key
+        for key in sorted(set(base_cases) & set(head_cases))
+        if base_cases[key] != head_cases[key]
+    )
+    return ManifestGuardReport(removed=removed, changed=changed, added=added)
+
+
+def immutable_usecase_index(manifest: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
+    """Return normalized operation contracts keyed by name and version."""
+    result: dict[str, dict[str, Any]] = {}
+    paths = required_mapping(manifest.get("paths"), "paths")
+    for path, path_item in paths.items():
+        if not isinstance(path_item, Mapping):
+            continue
+        post = path_item.get("post")
+        if not isinstance(post, Mapping):
+            continue
+        extension = required_mapping(post.get("x-usecaseapi"), "x-usecaseapi")
+        name = required_string(extension, "name")
+        version = required_int(extension, "version")
+        identity = f"{name}@v{version}"
+        result[identity] = normalize_immutable_operation(
+            manifest=manifest,
+            path=str(path),
+            operation=post,
+        )
+    return result
+
+
+def normalize_immutable_operation(
+    *,
+    manifest: Mapping[str, Any],
+    path: str,
+    operation: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Return the operation data that must not change for an existing version."""
+    root_extension = required_mapping(manifest.get("x-usecaseapi"), "x-usecaseapi")
+    component_refs = _reachable_component_refs(manifest=manifest, operation=operation)
+    normalized = sort_json_like(
+        {
+            "path": path,
+            "method": "post",
+            "operation": operation,
+            "components": _referenced_components(manifest=manifest, refs=component_refs),
+            "x-usecaseapi-errors": _referenced_error_metadata(
+                root_extension=root_extension,
+                refs=component_refs,
+            ),
+        }
+    )
+    return cast(dict[str, Any], normalized)
+
+
+def _reachable_component_refs(
+    *,
+    manifest: Mapping[str, Any],
+    operation: Mapping[str, Any],
+) -> set[tuple[str, str]]:
+    """Return OpenAPI component references reachable from one operation."""
+    components = required_mapping(manifest.get("components"), "components")
+    pending = _local_component_refs(operation)
+    seen: set[tuple[str, str]] = set()
+    while pending:
+        section, name = pending.pop()
+        if (section, name) in seen:
+            continue
+        seen.add((section, name))
+        section_value = required_mapping(components.get(section), f"components.{section}")
+        component = required_mapping(section_value.get(name), f"components.{section}.{name}")
+        pending.update(_local_component_refs(component) - seen)
+    return seen
+
+
+def _referenced_components(
+    *,
+    manifest: Mapping[str, Any],
+    refs: set[tuple[str, str]],
+) -> dict[str, dict[str, Any]]:
+    """Return OpenAPI components selected by local component references."""
+    components = required_mapping(manifest.get("components"), "components")
+    result: dict[str, dict[str, Any]] = {}
+    for section, name in sorted(refs):
+        section_value = required_mapping(components.get(section), f"components.{section}")
+        component = required_mapping(section_value.get(name), f"components.{section}.{name}")
+        result.setdefault(section, {})[name] = dict(component)
+    return result
+
+
+def _referenced_error_metadata(
+    *,
+    root_extension: Mapping[str, Any],
+    refs: set[tuple[str, str]],
+) -> dict[str, Any]:
+    """Return root error metadata referenced by one operation."""
+    extension_components = root_extension.get("components")
+    if not isinstance(extension_components, Mapping):
+        return {}
+    errors = extension_components.get("errors")
+    if not isinstance(errors, Mapping):
+        return {}
+    result: dict[str, Any] = {}
+    for key, value in errors.items():
+        if isinstance(value, Mapping) and _local_component_refs(value) & refs:
+            result[str(key)] = dict(value)
+    return result
+
+
+def _local_component_refs(value: Any) -> set[tuple[str, str]]:
+    """Return local OpenAPI component references found in a JSON-like value."""
+    refs: set[tuple[str, str]] = set()
+    if isinstance(value, Mapping):
+        ref = value.get("$ref")
+        if isinstance(ref, str):
+            component_ref = _local_component_ref_from_string(ref)
+            if component_ref is not None:
+                refs.add(component_ref)
+        for item in value.values():
+            refs.update(_local_component_refs(item))
+    elif isinstance(value, list | tuple):
+        for item in value:
+            refs.update(_local_component_refs(item))
+    elif isinstance(value, str):
+        component_ref = _local_component_ref_from_string(value)
+        if component_ref is not None:
+            refs.add(component_ref)
+    return refs
+
+
+def _local_component_ref_from_string(value: str) -> tuple[str, str] | None:
+    """Parse a local OpenAPI component reference string."""
+    prefix = "#/components/"
+    if not value.startswith(prefix):
+        return None
+    parts = value.removeprefix(prefix).split("/", 1)
+    if len(parts) != 2 or not all(parts):
+        return None
+    return parts[0], parts[1]
+
+
+def sort_json_like(value: Any) -> Any:
+    """Recursively sort JSON-like values for stable semantic comparison."""
+    if isinstance(value, Mapping):
+        return {str(key): sort_json_like(value[key]) for key in sorted(value, key=str)}
+    if isinstance(value, list):
+        return [sort_json_like(item) for item in value]
+    if isinstance(value, tuple):
+        return [sort_json_like(item) for item in value]
+    return value
 
 
 def diff_manifest_with_api(api: UseCaseAPI[Any], manifest: Mapping[str, Any]) -> ManifestDiff:
