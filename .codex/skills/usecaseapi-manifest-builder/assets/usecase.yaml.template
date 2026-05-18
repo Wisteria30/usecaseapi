@@ -1,0 +1,133 @@
+openapi: 3.1.0
+info:
+  title: project-name
+  version: 1.0.0
+  description: UseCaseAPI manifest for same-process application usecases.
+jsonSchemaDialect: https://json-schema.org/draft/2020-12/schema
+servers:
+  - url: http://localhost
+    description: Optional adapter base URL. Native UseCaseAPI calls are same-process.
+security: []
+tags: []
+paths:
+  /_usecases/package_name.usecase_name/v1/call:
+    post:
+      operationId: package_name_usecase_name_v1_call
+      tags: []
+      summary: One sentence describing the usecase behavior and boundary.
+      description: One sentence describing the usecase behavior and boundary.
+      deprecated: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PackageNameUsecaseNameV1UsecaseNameUseCaseInput"
+      responses:
+        "200":
+          description: UsecaseNameUseCaseOutput result.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PackageNameUsecaseNameV1UsecaseNameUseCaseOutput"
+      x-usecaseapi:
+        kind: usecase
+        key: package_name.usecase_name@v1
+        name: package_name.usecase_name
+        version: 1
+        action: call
+        lifecycle:
+          stability: stable
+          deprecated: false
+        protocol: usecaseapi.inprocess.async_call.v1
+        semantics:
+          kind: command
+          sideEffects: true
+          idempotent: false
+          cacheable: false
+        context:
+          source: runtime
+          required: false
+        input:
+          pythonName: UsecaseNameUseCaseInput
+          schema: "#/components/schemas/PackageNameUsecaseNameV1UsecaseNameUseCaseInput"
+        output:
+          pythonName: UsecaseNameUseCaseOutput
+          schema: "#/components/schemas/PackageNameUsecaseNameV1UsecaseNameUseCaseOutput"
+        errors:
+          raises: []
+          known: []
+        uses: {}
+        bindings:
+          python:
+            signature: "async __call__(input: UsecaseNameUseCaseInput) -> UsecaseNameUseCaseOutput"
+            contract:
+              module: package_name.usecases.usecase_name.v1.usecase_name_contract
+              file: src/package_name/usecases/usecase_name/v1/usecase_name_contract.py
+              protocolClass: UsecaseName
+              ref: USECASE_NAME_USECASE
+            implementation:
+              class: UsecaseNameUseCase
+              file: src/package_name/usecases/usecase_name/v1/usecase_name_usecase.py
+components:
+  schemas:
+    PackageNameUsecaseNameV1UsecaseNameUseCaseInput:
+      title: UsecaseNameUseCaseInput
+      description: One sentence describing caller input.
+      type: object
+      additionalProperties: false
+      required:
+        - example_id
+      properties:
+        example_id:
+          type: string
+          description: Stable identifier for the example entity.
+      x-usecaseapi:
+        kind: input
+        canonicalName: package_name.usecase_name.v1.UsecaseNameUseCaseInput
+        bindings:
+          python:
+            class: UsecaseNameUseCaseInput
+    PackageNameUsecaseNameV1UsecaseNameUseCaseOutput:
+      title: UsecaseNameUseCaseOutput
+      description: One sentence describing the result.
+      type: object
+      additionalProperties: false
+      required:
+        - accepted
+      properties:
+        accepted:
+          type: boolean
+          description: Whether the request was accepted.
+      x-usecaseapi:
+        kind: output
+        canonicalName: package_name.usecase_name.v1.UsecaseNameUseCaseOutput
+        bindings:
+          python:
+            class: UsecaseNameUseCaseOutput
+x-usecaseapi:
+  version: 3.1.0
+  profile: usecaseapi.openapi
+  manifestKind: usecaseapi.openapi.profile/3.1.0
+  defaults:
+    runtime: python
+    protocol: usecaseapi.inprocess.async_call.v1
+  runtimes:
+    python:
+      language: python
+      version: ">=3.12,<3.15"
+      package: package_name
+      roots:
+        contracts: src/package_name
+        implementations: src
+        tests: tests
+  protocols:
+    usecaseapi.inprocess.async_call.v1:
+      type: inprocess
+      interaction: requestReply
+      action: call
+      async: true
+      serialization: none
+      description: Same-process async request/reply usecase call.
+  components:
+    errors: {}
