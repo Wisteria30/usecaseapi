@@ -109,6 +109,42 @@ class ManifestGuardReport:
         }
 
 
+@dataclass(frozen=True, slots=True)
+class ContractCheckReport:
+    """Result of validating one committed UseCaseAPI manifest."""
+
+    manifest: str
+    target: str
+    manifest_valid: bool
+    synchronized: bool
+    guard: ManifestGuardReport | None
+    errors: tuple[str, ...] = ()
+
+    @property
+    def failed(self) -> bool:
+        """Whether the contract check should fail CI."""
+        return bool(
+            self.errors
+            or not self.manifest_valid
+            or not self.synchronized
+            or (self.guard is not None and self.guard.failed)
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return a JSON-friendly report."""
+        return {
+            "status": "failed" if self.failed else "passed",
+            "manifest": self.manifest,
+            "target": self.target,
+            "validation": {
+                "manifest": "passed" if self.manifest_valid else "failed",
+                "sync": "passed" if self.synchronized else "failed",
+            },
+            "guard": self.guard.to_dict() if self.guard is not None else None,
+            "errors": list(self.errors),
+        }
+
+
 def manifest_from_api(
     api: UseCaseAPI[Any],
     *,
@@ -1515,6 +1551,130 @@ def guard_manifests(base: Mapping[str, Any], head: Mapping[str, Any]) -> Manifes
         if base_cases[key] != head_cases[key]
     )
     return ManifestGuardReport(removed=removed, changed=changed, added=added)
+
+
+def run_contract_check(
+    *,
+    target: str,
+    manifest_path: Path,
+    base_manifest_path: Path | None,
+    api: UseCaseAPI[Any] | None,
+    target_error: str | None = None,
+) -> ContractCheckReport:
+    """Validate one committed manifest against code and an optional base manifest."""
+    errors: list[str] = []
+    guard: ManifestGuardReport | None = None
+    manifest_valid = False
+    synchronized = False
+    manifest_label = str(manifest_path)
+
+    if not manifest_path.exists():
+        return ContractCheckReport(
+            manifest=manifest_label,
+            target=target,
+            manifest_valid=False,
+            synchronized=False,
+            guard=None,
+            errors=(f"manifest not found: {manifest_path}",),
+        )
+
+    try:
+        head_manifest = load_manifest(manifest_path)
+    except (ManifestError, yaml.YAMLError) as exc:
+        return ContractCheckReport(
+            manifest=manifest_label,
+            target=target,
+            manifest_valid=False,
+            synchronized=False,
+            guard=None,
+            errors=(f"manifest validation failed: {exc}",),
+        )
+    manifest_valid = True
+
+    if api is None:
+        errors.append(target_error or "target API could not be loaded")
+    else:
+        sync_diff = diff_manifest_with_api(api, head_manifest)
+        sync_errors = contract_check_sync_errors(sync_diff)
+        if sync_errors:
+            errors.extend(sync_errors)
+        else:
+            synchronized = True
+
+    if base_manifest_path is not None:
+        if not base_manifest_path.exists():
+            errors.append(f"base manifest not found: {base_manifest_path}")
+        else:
+            try:
+                base_manifest = load_manifest(base_manifest_path)
+                guard = guard_manifests(base_manifest, head_manifest)
+            except (ManifestError, yaml.YAMLError) as exc:
+                errors.append(f"base manifest validation failed: {exc}")
+
+    return ContractCheckReport(
+        manifest=manifest_label,
+        target=target,
+        manifest_valid=manifest_valid,
+        synchronized=synchronized,
+        guard=guard,
+        errors=tuple(errors),
+    )
+
+
+def contract_check_sync_errors(diff: ManifestDiff) -> tuple[str, ...]:
+    """Return human-readable synchronization errors from a Manifest diff."""
+    return tuple(
+        [f"breaking: {item}" for item in diff.breaking]
+        + [f"warning: {item}" for item in diff.warnings]
+        + [f"addition: {item}" for item in diff.additions]
+    )
+
+
+def render_contract_check_markdown(report: ContractCheckReport) -> str:
+    """Render a Markdown contract check report."""
+    lines = [
+        "<!-- usecaseapi-contract-check -->",
+        "",
+        "## UseCaseAPI Contract Check",
+        "",
+        f"Status: {'Failed' if report.failed else 'Passed'}",
+        "",
+        f"Manifest: `{report.manifest}`",
+        f"Target: `{report.target}`",
+        "",
+        "Failures:",
+    ]
+
+    failures = list(report.errors)
+    if report.guard is not None:
+        failures.extend(f"`{item}` was removed." for item in report.guard.removed)
+        failures.extend(
+            f"`{item}` changed. Existing contract versions are immutable."
+            for item in report.guard.changed
+        )
+    if failures:
+        lines.extend(f"- {item}" for item in failures)
+    else:
+        lines.append("- none")
+
+    additions = report.guard.added if report.guard is not None else ()
+    lines.extend(["", "Additions:"])
+    if additions:
+        for item in additions:
+            lines.append(f"- `{item}`")
+    else:
+        lines.append("- none")
+
+    lines.extend(
+        [
+            "",
+            "Validation:",
+            f"- Manifest: {'passed' if report.manifest_valid else 'failed'}",
+            f"- Code sync: {'passed' if report.synchronized else 'failed'}",
+            "",
+        ]
+    )
+    return "\n".join(lines)
 
 
 def immutable_usecase_index(manifest: Mapping[str, Any]) -> dict[str, dict[str, Any]]:

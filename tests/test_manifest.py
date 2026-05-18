@@ -803,6 +803,176 @@ def test_manifest_guard_cli_passes_for_identical_manifests(
     }
 
 
+def test_manifest_ci_writes_reports_for_valid_example(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The manifest ci command writes Markdown and JSON reports for a valid catalog."""
+    summary = tmp_path / "contract-check.md"
+    json_report = tmp_path / "contract-check.json"
+    monkeypatch.chdir("examples/basic")
+    monkeypatch.syspath_prepend("src")
+
+    exit_code = main(
+        [
+            "manifest",
+            "ci",
+            "--target",
+            "composition:usecases",
+            "--manifest",
+            "usecaseapi.yaml",
+            "--summary",
+            str(summary),
+            "--json",
+            str(json_report),
+        ]
+    )
+
+    assert exit_code == 0
+    stdout = capsys.readouterr().out
+    markdown = summary.read_text()
+    report = json.loads(json_report.read_text())
+    assert "<!-- usecaseapi-contract-check -->" in stdout
+    assert "Status: Passed" in markdown
+    assert "Manifest: `usecaseapi.yaml`" in markdown
+    assert "Target: `composition:usecases`" in markdown
+    assert report["status"] == "passed"
+    assert report["validation"] == {"manifest": "passed", "sync": "passed"}
+
+
+def test_manifest_ci_fails_when_base_contract_changed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The manifest ci command fails when an existing base contract changes."""
+    base_path = tmp_path / "base.yaml"
+    base = load_manifest("examples/basic/usecaseapi.yaml")
+    head = deepcopy(base)
+    paths = cast(dict[str, object], base["paths"])
+    operation = cast(dict[str, object], cast(dict[str, object], next(iter(paths.values())))["post"])
+    operation["summary"] = "old summary"
+    dump_manifest(base, base_path)
+    head_path = tmp_path / "usecaseapi.yaml"
+    dump_manifest(head, head_path)
+    monkeypatch.chdir("examples/basic")
+    monkeypatch.syspath_prepend("src")
+
+    exit_code = main(
+        [
+            "manifest",
+            "ci",
+            "--target",
+            "composition:usecases",
+            "--manifest",
+            str(head_path),
+            "--base-manifest",
+            str(base_path),
+        ]
+    )
+
+    assert exit_code == 1
+
+
+def test_manifest_ci_fails_when_manifest_is_not_synchronized(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The manifest ci command fails when committed YAML differs from target code."""
+    changed = manifest_module.semantic_from_openapi_manifest(
+        load_manifest("examples/basic/usecaseapi.yaml")
+    )
+    changed["usecases"][0]["output"] = "DifferentOutput"
+    changed["usecases"][0]["models"].append({"name": "DifferentOutput", "fields": []})
+    changed_path = tmp_path / "changed.yaml"
+    changed_path.write_text(yaml.safe_dump(changed, sort_keys=False))
+    monkeypatch.chdir("examples/basic")
+    monkeypatch.syspath_prepend("src")
+
+    exit_code = main(
+        [
+            "manifest",
+            "ci",
+            "--target",
+            "composition:usecases",
+            "--manifest",
+            str(changed_path),
+        ]
+    )
+
+    assert exit_code == 1
+    output = capsys.readouterr().out
+    assert "Status: Failed" in output
+    assert "breaking: changed output model" in output
+
+
+def test_manifest_ci_reports_missing_manifest(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The manifest ci command reports a missing manifest without an unhandled traceback."""
+    summary = tmp_path / "contract-check.md"
+    missing = tmp_path / "missing.yaml"
+    monkeypatch.chdir("examples/basic")
+    monkeypatch.syspath_prepend("src")
+
+    exit_code = main(
+        [
+            "manifest",
+            "ci",
+            "--target",
+            "composition:usecases",
+            "--manifest",
+            str(missing),
+            "--summary",
+            str(summary),
+        ]
+    )
+
+    assert exit_code == 1
+    output = capsys.readouterr().out
+    assert "Status: Failed" in output
+    assert str(missing) in summary.read_text()
+
+
+def test_manifest_ci_reports_invalid_yaml_manifest(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The manifest ci command writes reports when YAML parsing fails."""
+    bad_manifest = tmp_path / "bad.yaml"
+    summary = tmp_path / "contract-check.md"
+    json_path = tmp_path / "contract-check.json"
+    bad_manifest.write_text("openapi: [unterminated\n")
+    monkeypatch.chdir("examples/basic")
+    monkeypatch.syspath_prepend("src")
+
+    exit_code = main(
+        [
+            "manifest",
+            "ci",
+            "--target",
+            "composition:usecases",
+            "--manifest",
+            str(bad_manifest),
+            "--summary",
+            str(summary),
+            "--json",
+            str(json_path),
+        ]
+    )
+
+    assert exit_code == 1
+    markdown = summary.read_text()
+    report = json.loads(json_path.read_text())
+    assert "Status: Failed" in markdown
+    assert report["status"] == "failed"
+    assert report["errors"]
+    assert "manifest validation failed" in report["errors"][0]
+
+
 def test_manifest_cli_uses_yaml_for_export_validate_scaffold_docs_graph_and_diff(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
