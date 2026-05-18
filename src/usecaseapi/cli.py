@@ -15,9 +15,11 @@ import typer
 
 from .api import UseCaseAPI
 from .manifest import (
+    ManifestGuardReport,
     diff_manifest_with_api,
     diff_manifests,
     dump_manifest,
+    guard_manifests,
     load_manifest,
     manifest_from_api,
     manifest_to_yaml,
@@ -232,6 +234,37 @@ def manifest_check_sync(
         echo_diff(manifest_diff.breaking, manifest_diff.warnings, manifest_diff.additions)
         raise typer.Exit(1)
     typer.echo("UseCaseAPI manifest is synchronized")
+
+
+@manifest_app.command("guard")
+def manifest_guard(
+    base: Annotated[Path, typer.Argument(help="Base usecaseapi.yaml path")],
+    head: Annotated[Path, typer.Argument(help="Head usecaseapi.yaml path")],
+    json_output: Annotated[bool, typer.Option("--json", help="Print JSON output")] = False,
+) -> None:
+    """Reject changes to existing usecase contract versions."""
+    report = guard_manifests(load_manifest(base), load_manifest(head))
+    if json_output:
+        typer.echo(json.dumps(report.to_dict(), ensure_ascii=False, indent=2))
+    else:
+        echo_contract_guard(report)
+    if report.failed:
+        raise typer.Exit(1)
+
+
+def echo_contract_guard(report: ManifestGuardReport) -> None:
+    """Print immutable-version guard sections in the CLI format."""
+    for label, items in (
+        ("Removed", report.removed),
+        ("Changed", report.changed),
+        ("Additions", report.added),
+    ):
+        typer.echo(label + ":")
+        if items:
+            for item in items:
+                typer.echo(f"  - {item}")
+        else:
+            typer.echo("  - none")
 
 
 def echo_diff(

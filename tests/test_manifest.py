@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import inspect
+import json
 
 from collections.abc import Callable
 from copy import deepcopy
@@ -750,6 +751,56 @@ def test_manifest_guard_rejects_changed_referenced_root_error_metadata() -> None
     assert report.failed is True
     assert "commerce.place_order@v1" in report.changed
     assert report.removed == ()
+
+
+def test_manifest_guard_cli_fails_for_changed_existing_version(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The manifest guard CLI fails when an existing version changes."""
+    base_path = tmp_path / "base.yaml"
+    head_path = tmp_path / "head.yaml"
+    base = load_manifest("examples/basic/usecaseapi.yaml")
+    head = deepcopy(base)
+    paths = cast(dict[str, object], head["paths"])
+    operation = cast(dict[str, object], cast(dict[str, object], next(iter(paths.values())))["post"])
+    operation["summary"] = "changed summary"
+    dump_manifest(base, base_path)
+    dump_manifest(head, head_path)
+
+    assert main(["manifest", "guard", str(base_path), str(head_path)]) == 1
+
+    output = capsys.readouterr().out
+    assert "Removed:" in output
+    assert "Changed:" in output
+    assert "Additions:" in output
+
+
+def test_manifest_guard_cli_passes_for_identical_manifests(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The manifest guard CLI passes and can print JSON for identical manifests."""
+    base_path = tmp_path / "base.yaml"
+    head_path = tmp_path / "head.yaml"
+    manifest = load_manifest("examples/basic/usecaseapi.yaml")
+    dump_manifest(manifest, base_path)
+    dump_manifest(manifest, head_path)
+
+    assert main(["manifest", "guard", str(base_path), str(head_path)]) == 0
+    output = capsys.readouterr().out
+    assert "Removed:" in output
+    assert "Changed:" in output
+    assert "Additions:" in output
+
+    assert main(["manifest", "guard", str(base_path), str(head_path), "--json"]) == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report == {
+        "failed": False,
+        "removed": [],
+        "changed": [],
+        "added": [],
+    }
 
 
 def test_manifest_cli_uses_yaml_for_export_validate_scaffold_docs_graph_and_diff(
