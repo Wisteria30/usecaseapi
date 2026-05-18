@@ -31,6 +31,8 @@ def test_contract_check_action_requires_target_and_sets_defaults() -> None:
     assert inputs["manifest"]["default"] == "usecaseapi.yaml"
     assert inputs["artifact-name"]["required"] is False
     assert inputs["artifact-name"]["default"] == "usecaseapi-contract-check"
+    assert inputs["comment-on-pr"]["required"] is False
+    assert inputs["comment-on-pr"]["default"] == "true"
     assert action["runs"]["using"] == "composite"
 
 
@@ -97,7 +99,9 @@ def test_contract_check_action_writes_summary_comments_and_uploads_artifact() ->
 
     comment = step_by_name(action, "Comment on pull request")
     comment_script = cast(str, comment["run"])
-    assert comment["if"] == "always() && github.event_name == 'pull_request'"
+    assert comment["if"] == (
+        "always() && github.event_name == 'pull_request' && inputs.comment-on-pr == 'true'"
+    )
     assert comment["env"]["GH_TOKEN"] == "${{ github.token }}"
     assert 'python "$GITHUB_ACTION_PATH/../../scripts/write_contract_check_pr_comment.py" \\' in (
         comment_script

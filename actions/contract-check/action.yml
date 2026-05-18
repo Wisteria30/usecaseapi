@@ -12,6 +12,10 @@ inputs:
     description: Name for uploaded contract check artifacts.
     required: false
     default: usecaseapi-contract-check
+  comment-on-pr:
+    description: Write the Markdown report as a pull request comment.
+    required: false
+    default: "true"
 runs:
   using: composite
   steps:
@@ -55,7 +59,7 @@ runs:
           cat build/usecaseapi-contract-check/contract-check.md >> "$GITHUB_STEP_SUMMARY"
         fi
     - name: Comment on pull request
-      if: always() && github.event_name == 'pull_request'
+      if: always() && github.event_name == 'pull_request' && inputs.comment-on-pr == 'true'
       shell: bash
       env:
         GH_TOKEN: ${{ github.token }}

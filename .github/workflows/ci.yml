@@ -109,6 +109,38 @@ jobs:
             --repository "${{ github.repository }}" \
             --pr-number "${{ github.event.pull_request.number }}"
 
+  contract-check:
+    name: Contract Check
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.1.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+          cache-suffix: contract-check-python-3.13
+      - name: Sync dependencies
+        run: uv sync --frozen --extra dev
+      - name: Add local tools to PATH
+        run: echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+      - name: Check contracts
+        uses: ./actions/contract-check
+        env:
+          PYTHONPATH: examples/basic/src
+        with:
+          comment-on-pr: "false"
+          manifest: examples/basic/usecaseapi.yaml
+          target: composition:usecases
+
   quality:
     name: Quality
     runs-on: ubuntu-latest
