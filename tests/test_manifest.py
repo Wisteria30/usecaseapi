@@ -973,6 +973,156 @@ def test_manifest_ci_reports_invalid_yaml_manifest(
     assert "manifest validation failed" in report["errors"][0]
 
 
+def test_manifest_ci_reports_target_load_failure(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The manifest ci command reports target import errors as check failures."""
+    exit_code = main(
+        [
+            "manifest",
+            "ci",
+            "--target",
+            "missing_module:usecases",
+            "--manifest",
+            "examples/basic/usecaseapi.yaml",
+        ]
+    )
+
+    assert exit_code == 1
+    output = capsys.readouterr().out
+    assert "Status: Failed" in output
+    assert "target load failed:" in output
+
+
+def test_manifest_ci_reports_missing_base_manifest(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The manifest ci command fails explicitly when the requested base file is absent."""
+    missing_base = tmp_path / "missing-base.yaml"
+    monkeypatch.chdir("examples/basic")
+    monkeypatch.syspath_prepend("src")
+
+    exit_code = main(
+        [
+            "manifest",
+            "ci",
+            "--target",
+            "composition:usecases",
+            "--manifest",
+            "usecaseapi.yaml",
+            "--base-manifest",
+            str(missing_base),
+        ]
+    )
+
+    assert exit_code == 1
+    output = capsys.readouterr().out
+    assert f"base manifest not found: {missing_base}" in output
+
+
+def test_manifest_ci_reports_invalid_base_manifest(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The manifest ci command fails explicitly when the base Manifest cannot parse."""
+    bad_base = tmp_path / "bad-base.yaml"
+    bad_base.write_text("openapi: [unterminated\n")
+    monkeypatch.chdir("examples/basic")
+    monkeypatch.syspath_prepend("src")
+
+    exit_code = main(
+        [
+            "manifest",
+            "ci",
+            "--target",
+            "composition:usecases",
+            "--manifest",
+            "usecaseapi.yaml",
+            "--base-manifest",
+            str(bad_base),
+        ]
+    )
+
+    assert exit_code == 1
+    output = capsys.readouterr().out
+    assert "base manifest validation failed:" in output
+
+
+def test_contract_check_markdown_lists_added_versions() -> None:
+    """The contract check report renders allowed additions distinctly from failures."""
+    base = load_manifest("examples/basic/usecaseapi.yaml")
+    semantic = manifest_module.semantic_from_openapi_manifest(base)
+    source_usecase = next(
+        usecase for usecase in semantic["usecases"] if usecase["key"] == "commerce.place_order@v1"
+    )
+    new_usecase = deepcopy(source_usecase)
+    new_usecase["version"] = 2
+    new_usecase["key"] = "commerce.place_order@v2"
+    semantic["usecases"].append(new_usecase)
+    head = manifest_module.openapi_manifest_from_semantic(semantic)
+
+    report = manifest_module.ContractCheckReport(
+        manifest="usecaseapi.yaml",
+        target="composition:usecases",
+        manifest_valid=True,
+        synchronized=True,
+        guard=guard_manifests(base, head),
+        errors=(),
+    )
+
+    markdown = manifest_module.render_contract_check_markdown(report)
+
+    assert "Failures:\n- none" in markdown
+    assert "Additions:\n- `commerce.place_order@v2`" in markdown
+
+
+def test_immutable_usecase_index_ignores_non_operation_path_items() -> None:
+    """The immutable index only includes POST usecase operations."""
+    manifest = deepcopy(load_manifest("examples/basic/usecaseapi.yaml"))
+    paths = cast(dict[str, object], manifest["paths"])
+    paths["/_ignored/not-an-object"] = []
+    paths["/_ignored/no-post"] = {"get": {"operationId": "ignored"}}
+
+    index = manifest_module.immutable_usecase_index(manifest)
+
+    assert "commerce.check_availability@v1" in index
+    assert all(not key.startswith("_ignored") for key in index)
+
+
+def test_reachable_component_refs_handles_cycles_once() -> None:
+    """Reachable component discovery terminates on recursive local references."""
+    manifest = {
+        "components": {
+            "schemas": {
+                "A": {"$ref": "#/components/schemas/B"},
+                "B": {"$ref": "#/components/schemas/A"},
+            }
+        }
+    }
+    operation = {"requestBody": {"$ref": "#/components/schemas/A"}}
+
+    refs = manifest_module._reachable_component_refs(manifest=manifest, operation=operation)
+
+    assert refs == {("schemas", "A"), ("schemas", "B")}
+
+
+def test_root_error_metadata_and_ref_helpers_handle_empty_or_invalid_values() -> None:
+    """Private normalization helpers reject non-component refs without fallback behavior."""
+    assert manifest_module._referenced_error_metadata(root_extension={}, refs=set()) == {}
+    assert (
+        manifest_module._referenced_error_metadata(
+            root_extension={"components": {"errors": []}},
+            refs=set(),
+        )
+        == {}
+    )
+    assert manifest_module._local_component_ref_from_string("#/components/schemas") is None
+    assert manifest_module.sort_json_like(("b", {"z": 1, "a": 2})) == ["b", {"a": 2, "z": 1}]
+
+
 def test_manifest_cli_uses_yaml_for_export_validate_scaffold_docs_graph_and_diff(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],

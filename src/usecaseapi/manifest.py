@@ -1734,8 +1734,6 @@ def _reachable_component_refs(
     seen: set[tuple[str, str]] = set()
     while pending:
         section, name = pending.pop()
-        if (section, name) in seen:
-            continue
         seen.add((section, name))
         section_value = required_mapping(components.get(section), f"components.{section}")
         component = required_mapping(section_value.get(name), f"components.{section}.{name}")
