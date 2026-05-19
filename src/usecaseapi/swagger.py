@@ -3,11 +3,9 @@
 from __future__ import annotations
 
 import ast
-import base64
 import importlib
 import importlib.util
 import inspect
-import re
 import socket
 import sys
 
@@ -15,11 +13,19 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
-from typing import Any
+from typing import Any, NoReturn
 
 from .api import UseCaseAPI
 from .contracts import UseCaseRef
 from .errors import UseCaseAPIError
+from .swagger_graph import (
+    PreviewGraph,
+    build_preview_graph,
+    operation_segment,
+    resolve_visible_graphs,
+    route_groups_for_graphs,
+    route_segment,
+)
 
 PREVIEW_MODULE_CANDIDATES = (
     Path("tests/usecaseapi_preview.py"),
@@ -31,7 +37,6 @@ PREVIEW_MODULE_CANDIDATES = (
 )
 API_EXPORT_NAMES = ("api", "usecases")
 FACTORY_EXPORT_NAMES = ("create_api", "create_usecases")
-ROUTE_SAFE_CONTRACT_NAME = re.compile(r"^[A-Za-z0-9._-]+$")
 AUTO_DISCOVERY_EXCLUDED_DIRS = {
     ".git",
     ".mypy_cache",
@@ -53,11 +58,9 @@ class SwaggerPreviewError(UseCaseAPIError):
 
 @dataclass(frozen=True, slots=True)
 class PreviewConfig:
-    """Loaded Swagger preview module configuration."""
+    """Loaded Swagger preview graph configuration."""
 
-    api: UseCaseAPI[Any]
-    create_context: Callable[..., Any] | None
-    module: ModuleType
+    graphs: tuple[PreviewGraph, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,13 +74,21 @@ class PreviewTargetCandidate:
 
 def discover_preview_module(*, cwd: Path | None = None) -> Path:
     """Discover the first supported preview module path under a working directory."""
+    path = discover_preview_module_or_none(cwd=cwd)
+    if path is not None:
+        return path
+    expected = ", ".join(str(candidate) for candidate in PREVIEW_MODULE_CANDIDATES)
+    raise SwaggerPreviewError(f"could not find preview module; expected one of: {expected}")
+
+
+def discover_preview_module_or_none(*, cwd: Path | None = None) -> Path | None:
+    """Return the first supported preview module path or None when no file exists."""
     root = Path.cwd() if cwd is None else cwd
     for candidate in PREVIEW_MODULE_CANDIDATES:
         path = root / candidate
         if path.is_file():
             return path
-    expected = ", ".join(str(candidate) for candidate in PREVIEW_MODULE_CANDIDATES)
-    raise SwaggerPreviewError(f"could not find preview module; expected one of: {expected}")
+    return None
 
 
 def discover_preview_target(*, cwd: Path | None = None) -> str:
@@ -201,25 +212,87 @@ def preview_target_score(module_name: str) -> tuple[int, int]:
 
 
 def load_preview(preview: str | None) -> PreviewConfig:
-    """Load a Swagger preview module and validate its exported configuration."""
-    module, export_name = import_preview_target(preview)
-    api = preview_api_from_module(module, export_name=export_name)
-    if not isinstance(api, UseCaseAPI):
-        exports = "', '".join((*API_EXPORT_NAMES, *FACTORY_EXPORT_NAMES))
-        raise SwaggerPreviewError(
-            f"preview module must export one of '{exports}' as a UseCaseAPI instance "
-            "or a zero-argument factory returning one"
+    """Load Swagger preview graphs and validate their exported configuration."""
+    if preview is not None:
+        module, export_name = import_preview_target(preview)
+        api = preview_api_from_module(module, export_name=export_name)
+        if api is None:
+            raise_preview_export_error()
+        return PreviewConfig(
+            graphs=(
+                build_preview_graph(
+                    target=preview,
+                    api=api,
+                    create_context=preview_context_from_module(module),
+                ),
+            )
         )
+
+    preview_path = discover_preview_module_or_none()
+    if preview_path is not None:
+        module = import_preview_file(preview_path)
+        api = preview_api_from_module(module, export_name=None)
+        if api is None:
+            raise_preview_export_error()
+        return PreviewConfig(
+            graphs=(
+                build_preview_graph(
+                    target=str(preview_path),
+                    api=api,
+                    create_context=preview_context_from_module(module),
+                ),
+            )
+        )
+
+    candidates = discover_composition_targets()
+    if not candidates:
+        raise_missing_preview_target_error()
+    graphs = [load_composition_graph(candidate) for candidate in candidates]
+    return PreviewConfig(graphs=tuple(resolve_visible_graphs(graphs)))
+
+
+def preview_context_from_module(module: ModuleType) -> Callable[..., Any] | None:
+    """Return the optional request context factory exported by a preview module."""
     create_context = getattr(module, "create_context", None)
     if create_context is not None and not callable(create_context):
         raise SwaggerPreviewError("preview module export 'create_context' must be callable")
-    return PreviewConfig(api=api, create_context=create_context, module=module)
+    return create_context
+
+
+def raise_preview_export_error() -> NoReturn:
+    """Raise the common error for missing preview UseCaseAPI exports."""
+    exports = "', '".join((*API_EXPORT_NAMES, *FACTORY_EXPORT_NAMES))
+    raise SwaggerPreviewError(
+        f"preview module must export one of '{exports}' as a UseCaseAPI instance "
+        "or a zero-argument factory returning one"
+    )
+
+
+def raise_missing_preview_target_error() -> NoReturn:
+    """Raise the common error for projects without any preview target."""
+    expected = ", ".join(str(candidate) for candidate in PREVIEW_MODULE_CANDIDATES)
+    raise SwaggerPreviewError(
+        "could not find preview target; expected one of: "
+        f"{expected}; or an importable composition module under src/ or the project root"
+    )
+
+
+def load_composition_graph(candidate: PreviewTargetCandidate) -> PreviewGraph:
+    """Import a discovered composition target and build its preview graph."""
+    module = import_preview_module_name(candidate.target)
+    api = preview_api_from_module(module, export_name=None)
+    if api is None:
+        raise_preview_export_error()
+    return build_preview_graph(
+        target=candidate.target,
+        api=api,
+        create_context=preview_context_from_module(module),
+    )
 
 
 def create_swagger_app(
     *,
-    api: UseCaseAPI[Any],
-    create_context: Callable[..., Any] | None,
+    graphs: tuple[PreviewGraph, ...],
 ) -> Any:
     """Create the development FastAPI preview app."""
     try:
@@ -241,14 +314,21 @@ def create_swagger_app(
     async def swagger_preview_error_handler(_: Any, exc: SwaggerPreviewError) -> PlainTextResponse:
         return PlainTextResponse(str(exc), status_code=500)
 
-    for binding in api.bindings:
-        ref = binding.ref
+    for group in route_groups_for_graphs(list(graphs)):
         app.post(
-            preview_route_path(ref),
-            name=ref.contract.name,
-            operation_id=preview_operation_id(ref),
-            response_model=ref.contract.output,
-        )(make_usecase_endpoint(api=api, ref=ref, create_context=create_context))
+            group.path,
+            name=group.ref.contract.name,
+            operation_id=group.operation_id,
+            response_model=group.ref.contract.output,
+            tags=list(group.tags),
+        )(
+            make_usecase_endpoint(
+                api=group.graph.api,
+                ref=group.ref,
+                create_context=group.graph.create_context,
+                operation_id=group.operation_id,
+            )
+        )
 
     return app
 
@@ -263,7 +343,7 @@ def serve_swagger_preview(*, preview: str | None, host: str, port: int) -> None:
         ) from exc
 
     config = load_preview(preview)
-    app = create_swagger_app(api=config.api, create_context=config.create_context)
+    app = create_swagger_app(graphs=config.graphs)
     selected_port = select_available_port(host=host, preferred_port=port)
     print("UseCaseAPI Swagger preview running at:")
     if selected_port != port:
@@ -317,20 +397,17 @@ def domain_error_envelope(error: Any) -> dict[str, Any]:
 
 def preview_route_path(ref: UseCaseRef[Any, Any]) -> str:
     """Return the canonical preview route path for a usecase."""
-    return f"/_usecases/{preview_route_name(ref.contract.name)}/v{ref.contract.version}/call"
+    return f"/_usecases/{route_segment(ref.contract.name)}/v{ref.contract.version}/call"
 
 
 def preview_route_name(contract_name: str) -> str:
     """Return a URL-safe route segment for a contract name."""
-    if ROUTE_SAFE_CONTRACT_NAME.fullmatch(contract_name):
-        return contract_name
-    encoded = base64.urlsafe_b64encode(contract_name.encode()).decode().rstrip("=")
-    return f"~{encoded}"
+    return route_segment(contract_name)
 
 
 def preview_operation_id(ref: UseCaseRef[Any, Any]) -> str:
     """Return the OpenAPI operation id used by the preview app."""
-    return ref.contract.name.replace(".", "_") + f"_v{ref.contract.version}_call"
+    return operation_segment(ref.contract.name) + f"_v{ref.contract.version}_call"
 
 
 def make_usecase_endpoint(
@@ -338,6 +415,7 @@ def make_usecase_endpoint(
     api: UseCaseAPI[Any],
     ref: UseCaseRef[Any, Any],
     create_context: Callable[..., Any] | None,
+    operation_id: str,
 ) -> Callable[..., Awaitable[Any]]:
     """Create one FastAPI endpoint function for a bound usecase."""
     from fastapi import Header, Request
@@ -351,7 +429,7 @@ def make_usecase_endpoint(
         context = await resolve_context(create_context, request)
         return await api.caller(context).call(ref, input)
 
-    endpoint.__name__ = preview_operation_id(ref)
+    endpoint.__name__ = operation_id
     endpoint.__signature__ = inspect.Signature(  # type: ignore[attr-defined]
         parameters=[
             inspect.Parameter(

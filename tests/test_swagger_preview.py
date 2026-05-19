@@ -9,7 +9,7 @@ import sys
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from types import SimpleNamespace
-from typing import ClassVar, Protocol
+from typing import Any, ClassVar, Protocol
 
 import pytest
 
@@ -30,6 +30,7 @@ from usecaseapi.swagger import (
     discover_preview_target,
     load_preview,
 )
+from usecaseapi.swagger_graph import PreviewGraph, build_preview_graph
 
 
 class PreviewInput(Model):
@@ -87,6 +88,11 @@ def make_bound_api() -> UseCaseAPI[None]:
     api = UseCaseAPI[None]()
     api.bind(PREVIEW_USECASE, lambda caller: PreviewImpl())
     return api
+
+
+def make_preview_graph(api: UseCaseAPI[Any] | None = None) -> PreviewGraph:
+    """Create a single preview graph for Swagger app tests."""
+    return build_preview_graph(target="preview", api=api or make_bound_api(), create_context=None)
 
 
 def test_discovers_usecaseapi_preview_module(
@@ -281,8 +287,66 @@ def test_load_preview_auto_discovers_src_composition_module(
 
     config = load_preview(None)
 
-    assert isinstance(config.api, UseCaseAPI)
-    assert config.module.__name__ == "app_shell.composition"
+    assert len(config.graphs) == 1
+    assert isinstance(config.graphs[0].api, UseCaseAPI)
+    assert config.graphs[0].target == "app_shell.composition"
+
+
+def test_load_preview_auto_discovers_multiple_independent_compositions(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The default preview loader imports every discovered independent composition."""
+    orders = tmp_path / "src" / "orders" / "composition.py"
+    payments = tmp_path / "src" / "payments" / "composition.py"
+    orders.parent.mkdir(parents=True)
+    payments.parent.mkdir(parents=True)
+    module_source = """
+from typing import Protocol
+
+from usecaseapi import Contract, Model, UseCaseAPI, define_usecase
+
+
+class Input(Model):
+    value: int
+
+
+class Output(Model):
+    value: int
+
+
+class RunUseCase(Protocol):
+    async def __call__(self, input: Input) -> Output: ...
+
+
+class Handler:
+    async def __call__(self, input: Input) -> Output:
+        return Output(value=input.value)
+
+
+RUN = define_usecase(
+    RunUseCase,
+    Contract(name="{contract_name}", version=1, input=Input, output=Output),
+)
+usecases = UseCaseAPI[None]()
+usecases.bind(RUN, lambda caller: Handler())
+"""
+    orders.write_text(
+        module_source.format(contract_name="orders.run").lstrip(),
+        encoding="utf-8",
+    )
+    payments.write_text(
+        module_source.format(contract_name="payments.run").lstrip(),
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+
+    config = load_preview(None)
+
+    assert [graph.target for graph in config.graphs] == [
+        "orders.composition",
+        "payments.composition",
+    ]
 
 
 def test_load_preview_accepts_module_export_target(
@@ -295,7 +359,9 @@ def test_load_preview_accepts_module_export_target(
 
     config = load_preview("app_shell.composition:usecases")
 
-    assert isinstance(config.api, UseCaseAPI)
+    assert len(config.graphs) == 1
+    assert isinstance(config.graphs[0].api, UseCaseAPI)
+    assert config.graphs[0].target == "app_shell.composition:usecases"
 
 
 def test_load_preview_accepts_zero_argument_usecase_factory(
@@ -315,7 +381,8 @@ def test_load_preview_accepts_zero_argument_usecase_factory(
 
     config = load_preview(None)
 
-    assert isinstance(config.api, UseCaseAPI)
+    assert len(config.graphs) == 1
+    assert isinstance(config.graphs[0].api, UseCaseAPI)
 
 
 def test_load_preview_rejects_factory_with_required_arguments(
@@ -412,7 +479,8 @@ def test_load_preview_accepts_usecases_export(tmp_path: Path) -> None:
 
     config = load_preview(str(preview_path))
 
-    assert isinstance(config.api, UseCaseAPI)
+    assert len(config.graphs) == 1
+    assert isinstance(config.graphs[0].api, UseCaseAPI)
 
 
 def test_load_preview_requires_callable_context_factory(tmp_path: Path) -> None:
@@ -432,7 +500,7 @@ def test_create_swagger_app_calls_bound_usecase() -> None:
 
     from usecaseapi.swagger import create_swagger_app
 
-    client = TestClient(create_swagger_app(api=make_bound_api(), create_context=None))
+    client = TestClient(create_swagger_app(graphs=(make_preview_graph(),)))
 
     response = client.post("/_usecases/preview.run/v1/call", json={"value": 4})
 
@@ -459,7 +527,7 @@ def test_domain_errors_are_returned_as_envelopes() -> None:
     )
     api = UseCaseAPI[None]()
     api.bind(ref, lambda caller: RejectingImpl())
-    client = TestClient(create_swagger_app(api=api, create_context=None))
+    client = TestClient(create_swagger_app(graphs=(make_preview_graph(api),)))
 
     response = client.post("/_usecases/preview.reject/v1/call", json={"value": 1})
 
@@ -478,12 +546,38 @@ def test_swagger_docs_include_usecase_path() -> None:
 
     from usecaseapi.swagger import create_swagger_app
 
-    client = TestClient(create_swagger_app(api=make_bound_api(), create_context=None))
+    client = TestClient(create_swagger_app(graphs=(make_preview_graph(),)))
 
     response = client.get("/openapi.json")
 
     assert response.status_code == 200
     assert "/_usecases/preview.run/v1/call" in response.json()["paths"]
+
+
+def test_create_swagger_app_registers_multiple_graph_routes() -> None:
+    """Multiple preview graphs are registered under composition route prefixes."""
+    from fastapi.testclient import TestClient
+
+    from usecaseapi.swagger import create_swagger_app
+
+    first = build_preview_graph(
+        target="orders.composition",
+        api=make_bound_api(),
+        create_context=None,
+    )
+    second = build_preview_graph(
+        target="payments.composition",
+        api=make_bound_api(),
+        create_context=None,
+    )
+    client = TestClient(create_swagger_app(graphs=(first, second)))
+
+    response = client.get("/openapi.json")
+
+    assert response.status_code == 200
+    paths = response.json()["paths"]
+    assert "/_compositions/orders.composition/_usecases/preview.run/v1/call" in paths
+    assert "/_compositions/payments.composition/_usecases/preview.run/v1/call" in paths
 
 
 def test_swagger_route_path_encodes_reserved_contract_name_syntax() -> None:
@@ -498,7 +592,7 @@ def test_swagger_route_path_encodes_reserved_contract_name_syntax() -> None:
     )
     api = UseCaseAPI[None]()
     api.bind(ref, lambda caller: PreviewImpl())
-    client = TestClient(create_swagger_app(api=api, create_context=None))
+    client = TestClient(create_swagger_app(graphs=(make_preview_graph(api),)))
     route_name = preview_route_name(ref.contract.name)
     route_path = f"/_usecases/{route_name}/v1/call"
 
@@ -516,7 +610,7 @@ def test_swagger_docs_include_preview_scenario_header_parameter() -> None:
 
     from usecaseapi.swagger import create_swagger_app
 
-    client = TestClient(create_swagger_app(api=make_bound_api(), create_context=None))
+    client = TestClient(create_swagger_app(graphs=(make_preview_graph(),)))
 
     response = client.get("/openapi.json")
 
@@ -557,7 +651,8 @@ def test_create_swagger_app_supports_keyword_only_request_context() -> None:
 
     api = UseCaseAPI[int]()
     api.bind(PREVIEW_USECASE, lambda caller: ContextPreviewImpl(caller.context))
-    client = TestClient(create_swagger_app(api=api, create_context=create_context))
+    graph = build_preview_graph(target="preview", api=api, create_context=create_context)
+    client = TestClient(create_swagger_app(graphs=(graph,)))
 
     response = client.post("/_usecases/preview.run/v1/call", json={"value": 4})
 
@@ -577,7 +672,8 @@ def test_create_swagger_app_supports_zero_argument_context_factory() -> None:
     def create_context() -> MultiplierContext:
         return MultiplierContext(multiplier=5)
 
-    client = TestClient(create_swagger_app(api=api, create_context=create_context))
+    graph = build_preview_graph(target="preview", api=api, create_context=create_context)
+    client = TestClient(create_swagger_app(graphs=(graph,)))
 
     response = client.post("/_usecases/preview.run/v1/call", json={"value": 3})
 
@@ -598,7 +694,8 @@ def test_request_headers_can_drive_preview_context() -> None:
     async def create_context(request: Request) -> MultiplierContext:
         return MultiplierContext(multiplier=int(request.headers["x-multiplier"]))
 
-    client = TestClient(create_swagger_app(api=api, create_context=create_context))
+    graph = build_preview_graph(target="preview", api=api, create_context=create_context)
+    client = TestClient(create_swagger_app(graphs=(graph,)))
 
     response = client.post(
         "/_usecases/preview.run/v1/call",
@@ -619,7 +716,7 @@ def test_basic_example_preview_module_runs_scenarios(monkeypatch: pytest.MonkeyP
     monkeypatch.chdir("examples/basic")
 
     config = load_preview(None)
-    client = TestClient(create_swagger_app(api=config.api, create_context=config.create_context))
+    client = TestClient(create_swagger_app(graphs=config.graphs))
     payload = {"user_id": "user_123", "item": {"sku_id": "sku_456", "quantity": 2}}
 
     accepted = client.post("/_usecases/commerce.place_order/v1/call", json=payload)
@@ -647,7 +744,7 @@ def test_basic_example_preview_module_rejects_unknown_scenario(
 
     config = load_preview(None)
     client = TestClient(
-        create_swagger_app(api=config.api, create_context=config.create_context),
+        create_swagger_app(graphs=config.graphs),
         raise_server_exceptions=False,
     )
 
@@ -674,7 +771,15 @@ def test_context_factory_rejects_unsupported_signature() -> None:
         raise AssertionError("unsupported context factory should not be called")
 
     client = TestClient(
-        create_swagger_app(api=make_bound_api(), create_context=create_context),
+        create_swagger_app(
+            graphs=(
+                build_preview_graph(
+                    target="preview",
+                    api=make_bound_api(),
+                    create_context=create_context,
+                ),
+            )
+        ),
         raise_server_exceptions=False,
     )
 
@@ -706,7 +811,7 @@ def test_create_swagger_app_reports_missing_fastapi(monkeypatch: pytest.MonkeyPa
     monkeypatch.setattr(builtins, "__import__", guarded_import)
 
     with pytest.raises(SwaggerPreviewError, match="uv sync --extra swagger"):
-        create_swagger_app(api=make_bound_api(), create_context=None)
+        create_swagger_app(graphs=(make_preview_graph(),))
 
 
 def test_serve_swagger_preview_reports_missing_uvicorn(monkeypatch: pytest.MonkeyPatch) -> None:
