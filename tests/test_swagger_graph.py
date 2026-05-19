@@ -144,3 +144,73 @@ def test_resolve_visible_graphs_keeps_partial_or_different_graphs() -> None:
         "first.composition",
         "second.composition",
     ]
+
+
+def test_resolve_visible_graphs_keeps_one_representative_for_equivalent_graphs() -> None:
+    """Keep one graph when equivalent graph snapshots compare as mutual containers."""
+    given_api = bind_graph_api()
+    first = build_preview_graph(target="composition", api=given_api, create_context=None)
+    second = build_preview_graph(target="composition", api=given_api, create_context=None)
+
+    visible = resolve_visible_graphs([second, first])
+
+    assert len(visible) == 1
+    assert visible[0].target == "composition"
+
+
+def test_resolve_visible_graphs_keeps_graphs_when_edges_are_not_contained() -> None:
+    """Keep graphs with the same nodes and bindings when edges are not a subset."""
+    def parent_factory(caller: object) -> Handler:
+        return Handler()
+
+    def child_factory(caller: object) -> Handler:
+        return Handler()
+
+    def leaf_factory(caller: object) -> Handler:
+        return Handler()
+
+    first_api = UseCaseAPI[None]()
+    first_api.bind(PARENT, parent_factory, uses=(CHILD,))
+    first_api.bind(CHILD, child_factory)
+    first_api.bind(LEAF, leaf_factory)
+    second_api = UseCaseAPI[None]()
+    second_api.bind(PARENT, parent_factory, uses=(LEAF,))
+    second_api.bind(CHILD, child_factory)
+    second_api.bind(LEAF, leaf_factory)
+    first = build_preview_graph(target="first.composition", api=first_api, create_context=None)
+    second = build_preview_graph(target="second.composition", api=second_api, create_context=None)
+
+    visible = resolve_visible_graphs([second, first])
+
+    assert [graph.target for graph in visible] == [
+        "first.composition",
+        "second.composition",
+    ]
+
+
+def test_resolve_visible_graphs_keeps_graphs_when_nodes_are_not_contained() -> None:
+    """Keep graphs when neither node set contains the other."""
+    def parent_factory(caller: object) -> Handler:
+        return Handler()
+
+    def child_factory(caller: object) -> Handler:
+        return Handler()
+
+    def leaf_factory(caller: object) -> Handler:
+        return Handler()
+
+    first_api = UseCaseAPI[None]()
+    first_api.bind(PARENT, parent_factory, uses=(CHILD,))
+    first_api.bind(CHILD, child_factory)
+    second_api = UseCaseAPI[None]()
+    second_api.bind(CHILD, child_factory, uses=(LEAF,))
+    second_api.bind(LEAF, leaf_factory)
+    first = build_preview_graph(target="first.composition", api=first_api, create_context=None)
+    second = build_preview_graph(target="second.composition", api=second_api, create_context=None)
+
+    visible = resolve_visible_graphs([second, first])
+
+    assert [graph.target for graph in visible] == [
+        "first.composition",
+        "second.composition",
+    ]

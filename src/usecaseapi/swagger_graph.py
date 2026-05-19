@@ -176,11 +176,45 @@ def graph_contains(parent: PreviewGraph, child: PreviewGraph) -> bool:
     )
 
 
+def graph_sort_key(graph: PreviewGraph) -> tuple[str, tuple[str, ...], tuple[tuple[str, str], ...]]:
+    """Return a deterministic ordering key for preview graph resolution."""
+    return graph.target, tuple(sorted(graph.nodes)), tuple(sorted(graph.edges))
+
+
+def graph_equivalent(left: PreviewGraph, right: PreviewGraph) -> bool:
+    """Return whether two graph snapshots represent the same visible graph."""
+    return (
+        left.nodes == right.nodes
+        and left.edges == right.edges
+        and left.create_context is right.create_context
+        and all(
+            left.binding_identity_by_key[node] == right.binding_identity_by_key[node]
+            for node in left.nodes
+        )
+    )
+
+
+def graph_properly_contains(parent: PreviewGraph, child: PreviewGraph) -> bool:
+    """Return whether parent strictly contains child."""
+    return graph_contains(parent, child) and (
+        child.nodes < parent.nodes or child.edges < parent.edges
+    )
+
+
 def resolve_visible_graphs(graphs: list[PreviewGraph]) -> list[PreviewGraph]:
     """Return deterministic graphs after removing contained subgraphs."""
-    sorted_graphs = sorted(graphs, key=lambda graph: graph.target)
-    return [
+    sorted_graphs = [
         graph
-        for graph in sorted_graphs
-        if not any(graph_contains(parent, graph) for parent in sorted_graphs)
+        for _, graph in sorted(
+            enumerate(graphs),
+            key=lambda indexed_graph: (graph_sort_key(indexed_graph[1]), indexed_graph[0]),
+        )
     ]
+    visible: list[PreviewGraph] = []
+    for graph in sorted_graphs:
+        if any(graph_equivalent(existing, graph) for existing in visible):
+            continue
+        if any(graph_properly_contains(parent, graph) for parent in sorted_graphs):
+            continue
+        visible.append(graph)
+    return visible
