@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import base64
 import importlib
 import importlib.util
@@ -29,7 +30,21 @@ PREVIEW_MODULE_CANDIDATES = (
     Path("preview.py"),
 )
 API_EXPORT_NAMES = ("api", "usecases")
+FACTORY_EXPORT_NAMES = ("create_api", "create_usecases")
 ROUTE_SAFE_CONTRACT_NAME = re.compile(r"^[A-Za-z0-9._-]+$")
+AUTO_DISCOVERY_EXCLUDED_DIRS = {
+    ".git",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".venv",
+    "__pycache__",
+    "build",
+    "dist",
+    "docs",
+    "htmlcov",
+    "tests",
+}
 
 
 class SwaggerPreviewError(UseCaseAPIError):
@@ -45,6 +60,15 @@ class PreviewConfig:
     module: ModuleType
 
 
+@dataclass(frozen=True, slots=True)
+class PreviewTargetCandidate:
+    """Importable preview target discovered from project composition code."""
+
+    target: str
+    path: Path
+    score: tuple[int, int]
+
+
 def discover_preview_module(*, cwd: Path | None = None) -> Path:
     """Discover the first supported preview module path under a working directory."""
     root = Path.cwd() if cwd is None else cwd
@@ -56,21 +80,135 @@ def discover_preview_module(*, cwd: Path | None = None) -> Path:
     raise SwaggerPreviewError(f"could not find preview module; expected one of: {expected}")
 
 
+def discover_preview_target(*, cwd: Path | None = None) -> str:
+    """Discover the best preview target from explicit files or project composition code."""
+    root = Path.cwd() if cwd is None else cwd
+    try:
+        return str(discover_preview_module(cwd=root))
+    except SwaggerPreviewError:
+        pass
+
+    candidates = discover_composition_targets(cwd=root)
+    if not candidates:
+        expected = ", ".join(str(candidate) for candidate in PREVIEW_MODULE_CANDIDATES)
+        raise SwaggerPreviewError(
+            "could not find preview target; expected one of: "
+            f"{expected}; or an importable composition module under src/ or the project root"
+        )
+
+    first = candidates[0]
+    tied = [candidate for candidate in candidates if candidate.score == first.score]
+    if len(tied) > 1:
+        choices = ", ".join(candidate.target for candidate in tied)
+        raise SwaggerPreviewError(
+            f"found multiple equally likely preview targets; specify one with --preview: {choices}"
+        )
+    return first.target
+
+
+def discover_composition_targets(*, cwd: Path | None = None) -> list[PreviewTargetCandidate]:
+    """Return importable composition targets that look like UseCaseAPI compositions."""
+    root = Path.cwd() if cwd is None else cwd
+    candidates: list[PreviewTargetCandidate] = []
+    seen_paths: set[Path] = set()
+    for import_root in project_import_roots(root):
+        for path in import_root.rglob("composition.py"):
+            resolved = path.resolve()
+            if resolved in seen_paths or should_skip_auto_discovery_path(path, import_root):
+                continue
+            seen_paths.add(resolved)
+            module_name = module_name_from_path(path, import_root)
+            if module_name is None or not looks_like_usecaseapi_composition(path):
+                continue
+            candidates.append(
+                PreviewTargetCandidate(
+                    target=module_name,
+                    path=path,
+                    score=preview_target_score(module_name),
+                )
+            )
+    return sorted(candidates, key=lambda candidate: (*candidate.score, candidate.target))
+
+
+def project_import_roots(root: Path) -> tuple[Path, ...]:
+    """Return import roots used for no-config preview discovery."""
+    src = root / "src"
+    if src.is_dir():
+        return (src, root)
+    return (root,)
+
+
+def should_skip_auto_discovery_path(path: Path, import_root: Path) -> bool:
+    """Return whether a candidate path is outside ordinary project source code."""
+    try:
+        parts = path.relative_to(import_root).parts
+    except ValueError:
+        return True
+    if import_root.name != "src" and parts and parts[0] == "src":
+        return True
+    return any(part in AUTO_DISCOVERY_EXCLUDED_DIRS for part in parts)
+
+
+def module_name_from_path(path: Path, import_root: Path) -> str | None:
+    """Return the import module name for a Python file under an import root."""
+    try:
+        relative = path.relative_to(import_root).with_suffix("")
+    except ValueError:
+        return None
+    parts = relative.parts
+    if not parts or not all(part.isidentifier() for part in parts):
+        return None
+    return ".".join(parts)
+
+
+def looks_like_usecaseapi_composition(path: Path) -> bool:
+    """Return whether a composition file exposes or can create a UseCaseAPI instance."""
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+    except (OSError, SyntaxError, UnicodeDecodeError):
+        return False
+
+    for node in tree.body:
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef) and node.name in (
+            *FACTORY_EXPORT_NAMES,
+            *API_EXPORT_NAMES,
+        ):
+            return True
+        if isinstance(node, ast.AnnAssign):
+            annotated_target = node.target
+            if isinstance(annotated_target, ast.Name) and annotated_target.id in API_EXPORT_NAMES:
+                return True
+        if isinstance(node, ast.Assign):
+            for assigned_target in node.targets:
+                if isinstance(assigned_target, ast.Name) and assigned_target.id in API_EXPORT_NAMES:
+                    return True
+    return False
+
+
+def preview_target_score(module_name: str) -> tuple[int, int]:
+    """Return the deterministic ranking for automatically discovered preview targets."""
+    parts = module_name.split(".")
+    first = parts[0]
+    if first in {"app", "app_shell", "application"}:
+        category = 0
+    elif module_name == "composition":
+        category = 1
+    elif first == "packages":
+        category = 3
+    else:
+        category = 2
+    return category, len(parts)
+
+
 def load_preview(preview: str | None) -> PreviewConfig:
     """Load a Swagger preview module and validate its exported configuration."""
-    module = import_preview_module(preview)
-    api = next(
-        (
-            value
-            for export_name in API_EXPORT_NAMES
-            if isinstance(value := getattr(module, export_name, None), UseCaseAPI)
-        ),
-        None,
-    )
+    module, export_name = import_preview_target(preview)
+    api = preview_api_from_module(module, export_name=export_name)
     if not isinstance(api, UseCaseAPI):
-        exports = "' or '".join(API_EXPORT_NAMES)
+        exports = "', '".join((*API_EXPORT_NAMES, *FACTORY_EXPORT_NAMES))
         raise SwaggerPreviewError(
-            f"preview module must export '{exports}' as a UseCaseAPI instance"
+            f"preview module must export one of '{exports}' as a UseCaseAPI instance "
+            "or a zero-argument factory returning one"
         )
     create_context = getattr(module, "create_context", None)
     if create_context is not None and not callable(create_context):
@@ -287,21 +425,98 @@ async def resolve_context(create_context: Callable[..., Any] | None, request: An
 
 def import_preview_module(preview: str | None) -> ModuleType:
     """Import a preview module from discovery, a file path, or a module name."""
+    module, _ = import_preview_target(preview)
+    return module
+
+
+def import_preview_target(preview: str | None) -> tuple[ModuleType, str | None]:
+    """Import a preview target and return its optional explicit export name."""
     if preview is None:
-        return import_preview_file(discover_preview_module())
+        preview = discover_preview_target()
+
+    module_name, export_name = split_preview_export(preview)
+    if export_name is not None:
+        return import_preview_module_name(module_name), export_name
 
     path = Path(preview)
     if path.suffix == ".py" or path.exists():
         if not path.is_file():
             raise SwaggerPreviewError(f"preview path {preview!r} is not a file")
-        return import_preview_file(path)
+        return import_preview_file(path), None
 
+    return import_preview_module_name(preview), None
+
+
+def split_preview_export(preview: str) -> tuple[str, str | None]:
+    """Split a module:export preview target without treating file paths as modules."""
+    if preview.endswith(".py") or Path(preview).exists() or ":" not in preview:
+        return preview, None
+    module_name, export_name = preview.rsplit(":", 1)
+    if not module_name or not export_name:
+        raise SwaggerPreviewError(f"invalid preview target: {preview}")
+    return module_name, export_name
+
+
+def import_preview_module_name(preview: str) -> ModuleType:
+    """Import a preview module name with ordinary project import roots available."""
+    roots = [str(path.resolve()) for path in project_import_roots(Path.cwd())]
+    added_roots = [root for root in roots if root not in sys.path]
+    sys.path[:0] = added_roots
     try:
         return importlib.import_module(preview)
     except ModuleNotFoundError as exc:
         if exc.name == preview or (exc.name is not None and preview.startswith(exc.name + ".")):
             raise SwaggerPreviewError(f"preview module does not exist: {preview}") from exc
         raise
+    finally:
+        for root in reversed(added_roots):
+            sys.path.remove(root)
+
+
+def preview_api_from_module(
+    module: ModuleType, *, export_name: str | None
+) -> UseCaseAPI[Any] | None:
+    """Return a UseCaseAPI instance from a module export or supported factory."""
+    export_names = (export_name,) if export_name is not None else API_EXPORT_NAMES
+    for name in export_names:
+        value = getattr(module, name, None)
+        api = preview_api_from_value(value)
+        if api is not None:
+            return api
+    if export_name is None:
+        for name in FACTORY_EXPORT_NAMES:
+            value = getattr(module, name, None)
+            api = preview_api_from_value(value)
+            if api is not None:
+                return api
+    return None
+
+
+def preview_api_from_value(value: Any) -> UseCaseAPI[Any] | None:
+    """Return a UseCaseAPI instance from a value or zero-argument factory."""
+    if isinstance(value, UseCaseAPI):
+        return value
+    if not callable(value) or not callable_accepts_no_required_arguments(value):
+        return None
+    result = value()
+    if isinstance(result, UseCaseAPI):
+        return result
+    return None
+
+
+def callable_accepts_no_required_arguments(value: Callable[..., Any]) -> bool:
+    """Return whether a callable can be invoked without user-provided arguments."""
+    if inspect.iscoroutinefunction(value):
+        return False
+    try:
+        signature = inspect.signature(value)
+    except (TypeError, ValueError):
+        return False
+    return all(
+        parameter.default is not inspect.Parameter.empty
+        or parameter.kind in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD)
+        for parameter in signature.parameters.values()
+    )
 
 
 def import_preview_file(path: Path) -> ModuleType:
@@ -312,10 +527,16 @@ def import_preview_file(path: Path) -> ModuleType:
     if spec is None or spec.loader is None:
         raise SwaggerPreviewError(f"could not create import loader for preview file {resolved}")
 
-    parent = str(resolved.parent)
-    added_parent = parent not in sys.path
-    if added_parent:
-        sys.path.insert(0, parent)
+    roots = [
+        str(resolved.parent),
+        *(str(path.resolve()) for path in project_import_roots(Path.cwd())),
+    ]
+    added_roots = [
+        root
+        for index, root in enumerate(roots)
+        if root not in sys.path and root not in roots[:index]
+    ]
+    sys.path[:0] = added_roots
     try:
         module = importlib.util.module_from_spec(spec)
         sys.modules[module_name] = module
@@ -325,6 +546,6 @@ def import_preview_file(path: Path) -> ModuleType:
             sys.modules.pop(module_name, None)
             raise
     finally:
-        if added_parent:
-            sys.path.remove(parent)
+        for root in reversed(added_roots):
+            sys.path.remove(root)
     return module

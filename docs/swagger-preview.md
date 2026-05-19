@@ -20,8 +20,9 @@ uv run usecaseapi swagger
 ```
 
 The command discovers an existing composition or preview module, loads its
-`api` or `usecases` object, creates local `POST` routes for bound usecases, and
-serves Swagger UI at:
+`api` or `usecases` object, or calls a zero-argument `create_api()` or
+`create_usecases()` factory. It creates local `POST` routes for bound usecases
+and serves Swagger UI at:
 
 ```text
 http://127.0.0.1:8000/docs
@@ -61,6 +62,17 @@ Then this command can start the preview without creating files in the project:
 
 ```bash
 uv run usecaseapi swagger
+```
+
+The command also supports a zero-argument factory:
+
+```python
+from usecaseapi import UseCaseAPI
+
+
+def create_usecases() -> UseCaseAPI[None]:
+    usecases = UseCaseAPI[None]()
+    return usecases
 ```
 
 Use a preview module only when local verification needs request-specific
@@ -117,7 +129,8 @@ fallback.
 
 ## Discovery
 
-When `--preview` is not provided, the command searches in this order:
+When `--preview` is not provided, the command first checks explicit preview
+files in this order:
 
 1. `tests/usecaseapi_preview.py`
 2. `dev/usecaseapi_preview.py`
@@ -126,14 +139,19 @@ When `--preview` is not provided, the command searches in this order:
 5. `usecaseapi_preview.py`
 6. `preview.py`
 
-Root-level preview files are supported for compatibility, but the recommended
-project-owned preview location is `tests/usecaseapi_preview.py` or
-`dev/usecaseapi_preview.py`.
+If none exist, it scans importable `composition.py` modules under `src/` and
+the project root. It prefers whole-application modules such as
+`src/app_shell/composition.py` over package-level modules such as
+`src/packages/order/composition.py`. If multiple candidates are equally likely,
+the command fails with the candidate list instead of choosing an arbitrary
+application.
 
-You can also point the command at a specific preview module:
+You can also point the command at a specific preview module or export:
 
 ```bash
 uv run usecaseapi swagger --preview usecaseapi_preview
+uv run usecaseapi swagger --preview app_shell.composition:usecases
+uv run usecaseapi swagger --preview app_shell.composition:create_usecases
 uv run usecaseapi swagger --preview tests/usecaseapi_preview.py
 uv run usecaseapi swagger --preview path/to/usecaseapi_preview.py
 ```
