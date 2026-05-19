@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from typing import Protocol
 
+import pytest
+
 from usecaseapi import Contract, Model, UseCaseAPI, define_usecase
+from usecaseapi.errors import MissingBindingError
 from usecaseapi.swagger_graph import build_preview_graph
 
 
@@ -76,3 +79,12 @@ def test_build_preview_graph_uses_declared_dependencies() -> None:
         LEAF.key: frozenset({CHILD.key}),
     }
     assert graph.roots == frozenset({PARENT.key})
+
+
+def test_build_preview_graph_rejects_missing_dependency_binding() -> None:
+    """Reject graphs with declared dependencies that are not bound."""
+    given_api = UseCaseAPI[None]()
+    given_api.bind(PARENT, lambda caller: Handler(), uses=(CHILD,))
+
+    with pytest.raises(MissingBindingError, match=CHILD.key):
+        build_preview_graph(target="composition", api=given_api, create_context=None)

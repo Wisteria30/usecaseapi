@@ -32,13 +32,13 @@ def build_preview_graph(
     create_context: Callable[..., Any] | None,
 ) -> PreviewGraph:
     """Build a dependency graph from one UseCaseAPI composition."""
+    api.validate(require_handlers=True)
     binding_by_key = {binding.ref.key: binding for binding in api.bindings}
     nodes = frozenset(binding_by_key)
     edges = frozenset(
         (binding.ref.key, used_key)
         for binding in api.bindings
         for used_key in binding.uses
-        if used_key in nodes
     )
 
     mutable_children: dict[str, set[str]] = {key: set() for key in nodes}
