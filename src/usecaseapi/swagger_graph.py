@@ -83,9 +83,7 @@ def build_preview_graph(
     }
     nodes = frozenset(binding_by_key)
     edges = frozenset(
-        (binding.ref.key, used_key)
-        for binding in api.bindings
-        for used_key in binding.uses
+        (binding.ref.key, used_key) for binding in api.bindings for used_key in binding.uses
     )
 
     mutable_children: dict[str, set[str]] = {key: set() for key in nodes}
@@ -94,9 +92,7 @@ def build_preview_graph(
         mutable_children[parent].add(child)
         mutable_parents[child].add(parent)
 
-    children_by_parent = {
-        key: frozenset(children) for key, children in mutable_children.items()
-    }
+    children_by_parent = {key: frozenset(children) for key, children in mutable_children.items()}
     parents_by_child = {key: frozenset(parents) for key, parents in mutable_parents.items()}
     roots = frozenset(key for key, parents in parents_by_child.items() if not parents)
 
@@ -153,9 +149,7 @@ def require_acyclic(graph: PreviewGraph) -> None:
     if cycle is None:
         return
 
-    raise SwaggerGraphError(
-        "dependency cycle detected in " f"{graph.target}: " + " -> ".join(cycle)
-    )
+    raise SwaggerGraphError(f"dependency cycle detected in {graph.target}: " + " -> ".join(cycle))
 
 
 def reachable_nodes_by_root(graph: PreviewGraph) -> dict[str, frozenset[str]]:

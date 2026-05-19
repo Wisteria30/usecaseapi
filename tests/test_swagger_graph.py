@@ -133,7 +133,9 @@ def test_resolve_visible_graphs_collapses_true_subgraphs() -> None:
 
 def test_resolve_visible_graphs_keeps_partial_or_different_graphs() -> None:
     """Keep graphs when containment fails because bindings differ."""
-    first = build_preview_graph(target="first.composition", api=bind_graph_api(), create_context=None)
+    first = build_preview_graph(
+        target="first.composition", api=bind_graph_api(), create_context=None
+    )
     second_api = UseCaseAPI[None]()
     second_api.bind(CHILD, lambda caller: Handler(), uses=(LEAF,))
     second_api.bind(LEAF, lambda caller: Handler())
@@ -161,6 +163,7 @@ def test_resolve_visible_graphs_keeps_one_representative_for_equivalent_graphs()
 
 def test_resolve_visible_graphs_keeps_graphs_when_edges_are_not_contained() -> None:
     """Keep graphs with the same nodes and bindings when edges are not a subset."""
+
     def parent_factory(caller: object) -> Handler:
         return Handler()
 
@@ -191,6 +194,7 @@ def test_resolve_visible_graphs_keeps_graphs_when_edges_are_not_contained() -> N
 
 def test_resolve_visible_graphs_keeps_graphs_when_nodes_are_not_contained() -> None:
     """Keep graphs when neither node set contains the other."""
+
     def parent_factory(caller: object) -> Handler:
         return Handler()
 
@@ -217,6 +221,38 @@ def test_resolve_visible_graphs_keeps_graphs_when_nodes_are_not_contained() -> N
     ]
 
 
+def test_resolve_visible_graphs_keeps_graphs_when_contexts_differ() -> None:
+    """Keep otherwise contained graphs when their context factories differ."""
+
+    def context_one() -> None:
+        return None
+
+    def context_two() -> None:
+        return None
+
+    parent_api = bind_graph_api()
+    child_api = UseCaseAPI[None]()
+    child_api.bind(CHILD, parent_api.binding_for_key(CHILD.key).factory, uses=(LEAF,))
+    child_api.bind(LEAF, parent_api.binding_for_key(LEAF.key).factory)
+    parent = build_preview_graph(
+        target="app.composition",
+        api=parent_api,
+        create_context=context_one,
+    )
+    child = build_preview_graph(
+        target="commerce.composition",
+        api=child_api,
+        create_context=context_two,
+    )
+
+    visible = resolve_visible_graphs([child, parent])
+
+    assert [graph.target for graph in visible] == [
+        "app.composition",
+        "commerce.composition",
+    ]
+
+
 def test_route_groups_for_single_graph_use_plain_paths() -> None:
     """Generate unprefixed preview routes for a single visible graph."""
     graph = build_preview_graph(target="composition", api=bind_graph_api(), create_context=None)
@@ -233,8 +269,12 @@ def test_route_groups_for_single_graph_use_plain_paths() -> None:
 
 def test_route_groups_for_multiple_graphs_use_composition_prefixes() -> None:
     """Prefix preview routes when multiple visible graphs are registered."""
-    first = build_preview_graph(target="orders.composition", api=bind_graph_api(), create_context=None)
-    second = build_preview_graph(target="payments.composition", api=bind_graph_api(), create_context=None)
+    first = build_preview_graph(
+        target="orders.composition", api=bind_graph_api(), create_context=None
+    )
+    second = build_preview_graph(
+        target="payments.composition", api=bind_graph_api(), create_context=None
+    )
 
     groups = route_groups_for_graphs([first, second])
 
@@ -262,7 +302,9 @@ def test_route_groups_assign_multiple_tags_to_shared_children() -> None:
 
 def test_route_groups_return_no_groups_for_empty_graphs() -> None:
     """Do not invent routes or tags for empty graphs."""
-    graph = build_preview_graph(target="empty.composition", api=UseCaseAPI[None](), create_context=None)
+    graph = build_preview_graph(
+        target="empty.composition", api=UseCaseAPI[None](), create_context=None
+    )
 
     groups = route_groups_for_graphs([graph])
 

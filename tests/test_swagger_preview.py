@@ -364,6 +364,34 @@ def test_load_preview_accepts_module_export_target(
     assert config.graphs[0].target == "app_shell.composition:usecases"
 
 
+def test_load_preview_rejects_explicit_target_without_api_export(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Explicit preview targets must expose a UseCaseAPI instance or factory."""
+    preview_path = tmp_path / "src" / "app_shell" / "composition.py"
+    preview_path.parent.mkdir(parents=True)
+    preview_path.write_text("value = 1\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+
+    with pytest.raises(SwaggerPreviewError, match="UseCaseAPI instance"):
+        load_preview("app_shell.composition:value")
+
+
+def test_load_preview_reports_missing_preview_target(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The graph loader keeps the missing-target error actionable."""
+    monkeypatch.chdir(tmp_path)
+
+    with pytest.raises(SwaggerPreviewError, match="could not find preview target") as exc_info:
+        load_preview(None)
+
+    assert "tests/usecaseapi_preview.py" in str(exc_info.value)
+    assert "composition module under src/" in str(exc_info.value)
+
+
 def test_load_preview_accepts_zero_argument_usecase_factory(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -584,7 +612,12 @@ def test_swagger_route_path_encodes_reserved_contract_name_syntax() -> None:
     """Contract names containing path syntax still produce callable preview routes."""
     from fastapi.testclient import TestClient
 
-    from usecaseapi.swagger import create_swagger_app, preview_route_name
+    from usecaseapi.swagger import (
+        create_swagger_app,
+        preview_operation_id,
+        preview_route_name,
+        preview_route_path,
+    )
 
     ref: UseCaseRef[PreviewInput, PreviewOutput] = define_usecase(
         PreviewUseCase,
@@ -599,6 +632,8 @@ def test_swagger_route_path_encodes_reserved_contract_name_syntax() -> None:
     response = client.post(route_path, json={"value": 4})
 
     assert route_name == "~cHJldmlldy97dGVuYW50fS9ydW4"
+    assert preview_route_path(ref) == route_path
+    assert preview_operation_id(ref).endswith("_v1_call")
     assert response.status_code == 200
     assert response.json() == {"value": 5}
     assert route_path in client.get("/openapi.json").json()["paths"]
