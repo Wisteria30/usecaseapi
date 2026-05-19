@@ -13,6 +13,7 @@ from usecaseapi.swagger_graph import (
     build_preview_graph,
     reachable_nodes_by_root,
     resolve_visible_graphs,
+    route_groups_for_graphs,
 )
 
 
@@ -214,3 +215,54 @@ def test_resolve_visible_graphs_keeps_graphs_when_nodes_are_not_contained() -> N
         "first.composition",
         "second.composition",
     ]
+
+
+def test_route_groups_for_single_graph_use_plain_paths() -> None:
+    """Generate unprefixed preview routes for a single visible graph."""
+    graph = build_preview_graph(target="composition", api=bind_graph_api(), create_context=None)
+
+    groups = route_groups_for_graphs([graph])
+
+    assert [group.ref.key for group in groups] == [PARENT.key, CHILD.key, LEAF.key]
+    assert groups[0].path == "/_usecases/commerce.checkout/v1/call"
+    assert groups[0].operation_id == "commerce_checkout_v1_call"
+    assert groups[0].tags == ("commerce.checkout@v1",)
+    assert groups[1].tags == ("commerce.checkout@v1",)
+
+
+def test_route_groups_for_multiple_graphs_use_composition_prefixes() -> None:
+    """Prefix preview routes when multiple visible graphs are registered."""
+    first = build_preview_graph(target="orders.composition", api=bind_graph_api(), create_context=None)
+    second = build_preview_graph(target="payments.composition", api=bind_graph_api(), create_context=None)
+
+    groups = route_groups_for_graphs([first, second])
+
+    assert groups[0].path.startswith("/_compositions/orders.composition/_usecases/")
+    assert groups[0].operation_id.startswith("orders_composition__")
+    assert groups[0].tags == ("orders.composition / commerce.checkout@v1",)
+
+
+def test_route_groups_assign_multiple_tags_to_shared_children() -> None:
+    """Tag a shared child with every root flow that can reach it."""
+    given_api = UseCaseAPI[None]()
+    given_api.bind(PARENT, lambda caller: Handler(), uses=(LEAF,))
+    given_api.bind(CHILD, lambda caller: Handler(), uses=(LEAF,))
+    given_api.bind(LEAF, lambda caller: Handler())
+    graph = build_preview_graph(target="composition", api=given_api, create_context=None)
+
+    groups = route_groups_for_graphs([graph])
+
+    assert groups[2].ref.key == LEAF.key
+    assert groups[2].tags == (
+        "commerce.checkout@v1",
+        "commerce.place_order@v1",
+    )
+
+
+def test_route_groups_return_no_groups_for_empty_graphs() -> None:
+    """Do not invent routes or tags for empty graphs."""
+    graph = build_preview_graph(target="empty.composition", api=UseCaseAPI[None](), create_context=None)
+
+    groups = route_groups_for_graphs([graph])
+
+    assert groups == []

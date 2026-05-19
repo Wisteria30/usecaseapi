@@ -2,13 +2,19 @@
 
 from __future__ import annotations
 
+import base64
+import re
+
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any
 
 from .api import Binding, UseCaseAPI
+from .contracts import UseCaseRef
 from .errors import UseCaseAPIError
+
+ROUTE_SAFE_SEGMENT = re.compile(r"^[A-Za-z0-9._-]+$")
 
 
 class SwaggerGraphError(UseCaseAPIError):
@@ -38,6 +44,17 @@ class PreviewGraph:
     roots: frozenset[str]
     binding_by_key: Mapping[str, Binding[Any]]
     binding_identity_by_key: Mapping[str, BindingIdentity]
+
+
+@dataclass(frozen=True, slots=True)
+class PreviewRouteGroup:
+    """FastAPI route registration data for one preview binding."""
+
+    graph: PreviewGraph
+    ref: UseCaseRef[Any, Any]
+    path: str
+    operation_id: str
+    tags: tuple[str, ...]
 
 
 def binding_identity(factory: Callable[..., Any]) -> BindingIdentity:
@@ -158,6 +175,90 @@ def reachable_nodes_by_root(graph: PreviewGraph) -> dict[str, frozenset[str]]:
         return result
 
     return {root: descend(root) for root in sorted(graph.roots)}
+
+
+def route_segment(value: str) -> str:
+    """Return a URL-safe route segment without losing the original identity."""
+    if ROUTE_SAFE_SEGMENT.fullmatch(value):
+        return value
+    encoded = base64.urlsafe_b64encode(value.encode()).decode().rstrip("=")
+    return f"~{encoded}"
+
+
+def operation_segment(value: str) -> str:
+    """Return a stable OpenAPI operation id segment."""
+    return re.sub(r"[^A-Za-z0-9_]", "_", value).strip("_")
+
+
+def route_groups_for_graphs(graphs: list[PreviewGraph]) -> list[PreviewRouteGroup]:
+    """Return route registration groups for visible graphs."""
+    include_target = len(graphs) > 1
+    groups: list[PreviewRouteGroup] = []
+    for graph in sorted(graphs, key=lambda item: item.target):
+        tags_by_key = tags_by_usecase_key(graph, include_target=include_target)
+        for binding in graph.api.bindings:
+            ref = binding.ref
+            groups.append(
+                PreviewRouteGroup(
+                    graph=graph,
+                    ref=ref,
+                    path=preview_path_for_ref(
+                        graph=graph,
+                        ref=ref,
+                        include_target=include_target,
+                    ),
+                    operation_id=preview_operation_id_for_ref(
+                        graph=graph,
+                        ref=ref,
+                        include_target=include_target,
+                    ),
+                    tags=tags_by_key[ref.key],
+                )
+            )
+    return groups
+
+
+def tags_by_usecase_key(
+    graph: PreviewGraph,
+    *,
+    include_target: bool,
+) -> dict[str, tuple[str, ...]]:
+    """Assign each use case to every root flow that reaches it."""
+    reachable = reachable_nodes_by_root(graph)
+    tags: dict[str, list[str]] = {key: [] for key in graph.nodes}
+    for root, reachable_nodes in sorted(reachable.items()):
+        label = root
+        if include_target:
+            label = f"{graph.target} / {root}"
+        for key in reachable_nodes:
+            tags[key].append(label)
+    return {key: tuple(values) for key, values in tags.items()}
+
+
+def preview_path_for_ref(
+    *,
+    graph: PreviewGraph,
+    ref: UseCaseRef[Any, Any],
+    include_target: bool,
+) -> str:
+    """Return the FastAPI route path for one preview use case."""
+    usecase_path = f"/_usecases/{route_segment(ref.contract.name)}/v{ref.contract.version}/call"
+    if not include_target:
+        return usecase_path
+    return f"/_compositions/{route_segment(graph.target)}{usecase_path}"
+
+
+def preview_operation_id_for_ref(
+    *,
+    graph: PreviewGraph,
+    ref: UseCaseRef[Any, Any],
+    include_target: bool,
+) -> str:
+    """Return a collision-free OpenAPI operation id."""
+    operation_id = operation_segment(ref.contract.name) + f"_v{ref.contract.version}_call"
+    if not include_target:
+        return operation_id
+    return f"{operation_segment(graph.target)}__{operation_id}"
 
 
 def graph_contains(parent: PreviewGraph, child: PreviewGraph) -> bool:
