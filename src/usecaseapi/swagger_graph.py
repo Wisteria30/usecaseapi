@@ -8,6 +8,11 @@ from types import MappingProxyType
 from typing import Any
 
 from .api import Binding, UseCaseAPI
+from .errors import UseCaseAPIError
+
+
+class SwaggerGraphError(UseCaseAPIError):
+    """Raised when preview dependency graphs cannot be resolved."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,7 +58,7 @@ def build_preview_graph(
     parents_by_child = {key: frozenset(parents) for key, parents in mutable_parents.items()}
     roots = frozenset(key for key, parents in parents_by_child.items() if not parents)
 
-    return PreviewGraph(
+    graph = PreviewGraph(
         target=target,
         api=api,
         create_context=create_context,
@@ -64,3 +69,66 @@ def build_preview_graph(
         roots=roots,
         binding_by_key=MappingProxyType(binding_by_key),
     )
+    require_acyclic(graph)
+    return graph
+
+
+def detect_cycle(graph: PreviewGraph) -> tuple[str, ...] | None:
+    """Return a cycle path if the graph contains one."""
+    visiting: set[str] = set()
+    visited: set[str] = set()
+    stack: list[str] = []
+
+    def visit(node: str) -> tuple[str, ...] | None:
+        if node in visiting:
+            index = stack.index(node)
+            return (*stack[index:], node)
+        if node in visited:
+            return None
+
+        visiting.add(node)
+        stack.append(node)
+        for child in sorted(graph.children_by_parent[node]):
+            cycle = visit(child)
+            if cycle is not None:
+                return cycle
+        stack.pop()
+        visiting.remove(node)
+        visited.add(node)
+        return None
+
+    for node in sorted(graph.nodes):
+        cycle = visit(node)
+        if cycle is not None:
+            return cycle
+    return None
+
+
+def require_acyclic(graph: PreviewGraph) -> None:
+    """Reject cyclic dependency graphs because root grouping would be ambiguous."""
+    cycle = detect_cycle(graph)
+    if cycle is None:
+        return
+
+    raise SwaggerGraphError(
+        "dependency cycle detected in " f"{graph.target}: " + " -> ".join(cycle)
+    )
+
+
+def reachable_nodes_by_root(graph: PreviewGraph) -> dict[str, frozenset[str]]:
+    """Return every node reachable from each root use case."""
+    memo: dict[str, frozenset[str]] = {}
+
+    def descend(node: str) -> frozenset[str]:
+        cached = memo.get(node)
+        if cached is not None:
+            return cached
+
+        reachable = {node}
+        for child in graph.children_by_parent[node]:
+            reachable.update(descend(child))
+        result = frozenset(reachable)
+        memo[node] = result
+        return result
+
+    return {root: descend(root) for root in sorted(graph.roots)}

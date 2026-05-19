@@ -8,7 +8,11 @@ import pytest
 
 from usecaseapi import Contract, Model, UseCaseAPI, define_usecase
 from usecaseapi.errors import MissingBindingError
-from usecaseapi.swagger_graph import build_preview_graph
+from usecaseapi.swagger_graph import (
+    SwaggerGraphError,
+    build_preview_graph,
+    reachable_nodes_by_root,
+)
 
 
 class Input(Model):
@@ -88,3 +92,24 @@ def test_build_preview_graph_rejects_missing_dependency_binding() -> None:
 
     with pytest.raises(MissingBindingError, match=CHILD.key):
         build_preview_graph(target="composition", api=given_api, create_context=None)
+
+
+def test_build_preview_graph_rejects_dependency_cycles() -> None:
+    """Reject dependency graphs that contain cycles."""
+    given_api = UseCaseAPI[None]()
+    given_api.bind(PARENT, lambda caller: Handler(), uses=(CHILD,))
+    given_api.bind(CHILD, lambda caller: Handler(), uses=(PARENT,))
+
+    with pytest.raises(SwaggerGraphError, match="dependency cycle detected"):
+        build_preview_graph(target="composition", api=given_api, create_context=None)
+
+
+def test_reachable_nodes_by_root_memoizes_dependency_flows() -> None:
+    """Resolve every node reachable from each graph root."""
+    graph = build_preview_graph(target="composition", api=bind_graph_api(), create_context=None)
+
+    reachable = reachable_nodes_by_root(graph)
+
+    assert reachable == {
+        PARENT.key: frozenset({PARENT.key, CHILD.key, LEAF.key}),
+    }
