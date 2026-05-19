@@ -140,18 +140,39 @@ files in this order:
 6. `preview.py`
 
 If none exist, it scans importable `composition.py` modules under `src/` and
-the project root. It prefers whole-application modules such as
-`src/app_shell/composition.py` over package-level modules such as
-`src/packages/order/composition.py`. If multiple candidates are equally likely,
-the command fails with the candidate list instead of choosing an arbitrary
-application.
+the project root. Every discovered composition is loaded in memory. The command
+builds a dependency graph from declared `uses`, collapses implementation-equivalent
+subgraphs into their parent graph, and renders the remaining graphs in Swagger UI.
 
-You can also point the command at a specific preview module or export:
+No files are generated in the application repository. The preview FastAPI app
+exists only for the running command process.
+
+You can point the command at one specific preview module or export:
 
 ```bash
 uv run usecaseapi swagger --preview usecaseapi_preview
-uv run usecaseapi swagger --preview app_shell.composition:usecases
-uv run usecaseapi swagger --preview app_shell.composition:create_usecases
+uv run usecaseapi swagger --preview app.composition:usecases
+uv run usecaseapi swagger --preview app.composition:create_usecases
 uv run usecaseapi swagger --preview tests/usecaseapi_preview.py
 uv run usecaseapi swagger --preview path/to/usecaseapi_preview.py
+```
+
+## Multiple Compositions
+
+When multiple compositions remain visible after graph resolution, preview routes
+include the composition target to avoid OpenAPI path and operationId collisions:
+
+```text
+/_compositions/orders.composition/_usecases/orders.create_order/v1/call
+/_compositions/payments.composition/_usecases/payments.authorize/v1/call
+```
+
+Swagger tags are assigned from dependency roots. If one root reaches a child
+usecase through declared `uses`, the child operation receives the root tag too.
+If a child is shared by two roots, the operation receives both tags.
+
+Single-composition preview keeps the shorter route shape:
+
+```text
+/_usecases/orders.create_order/v1/call
 ```
