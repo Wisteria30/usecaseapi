@@ -369,7 +369,7 @@ def test_load_preview_rejects_explicit_target_without_api_export(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Explicit preview targets must expose a UseCaseAPI instance or factory."""
-    preview_path = tmp_path / "src" / "app_shell" / "composition.py"
+    preview_path = tmp_path / "src" / "lazy_app" / "composition.py"
     preview_path.parent.mkdir(parents=True)
     preview_path.write_text("value = 1\n", encoding="utf-8")
     monkeypatch.chdir(tmp_path)
@@ -408,6 +408,36 @@ def test_load_preview_accepts_zero_argument_usecase_factory(
     monkeypatch.chdir(tmp_path)
 
     config = load_preview(None)
+
+    assert len(config.graphs) == 1
+    assert isinstance(config.graphs[0].api, UseCaseAPI)
+
+
+def test_load_preview_keeps_project_import_roots_during_factory_execution(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Preview factories can lazily import project modules under src."""
+    builder_path = tmp_path / "src" / "builders.py"
+    preview_path = tmp_path / "src" / "lazy_app" / "composition.py"
+    builder_path.parent.mkdir(parents=True)
+    preview_path.parent.mkdir(parents=True)
+    builder_path.write_text(
+        "from usecaseapi import UseCaseAPI\n\n"
+        "def make_api() -> UseCaseAPI[None]:\n"
+        "    return UseCaseAPI[None]()\n",
+        encoding="utf-8",
+    )
+    preview_path.write_text(
+        "from usecaseapi import UseCaseAPI\n\n"
+        "def create_usecases() -> UseCaseAPI[None]:\n"
+        "    from builders import make_api\n"
+        "    return make_api()\n",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+
+    config = load_preview("lazy_app.composition:create_usecases")
 
     assert len(config.graphs) == 1
     assert isinstance(config.graphs[0].api, UseCaseAPI)

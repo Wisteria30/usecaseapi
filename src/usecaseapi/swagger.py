@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import ast
+import contextlib
 import importlib
 import importlib.util
 import inspect
 import socket
 import sys
 
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
@@ -555,19 +556,40 @@ def preview_api_from_module(
     module: ModuleType, *, export_name: str | None
 ) -> UseCaseAPI[Any] | None:
     """Return a UseCaseAPI instance from a module export or supported factory."""
-    export_names = (export_name,) if export_name is not None else API_EXPORT_NAMES
-    for name in export_names:
-        value = getattr(module, name, None)
-        api = preview_api_from_value(value)
-        if api is not None:
-            return api
-    if export_name is None:
-        for name in FACTORY_EXPORT_NAMES:
+    with preview_runtime_import_roots(module):
+        export_names = (export_name,) if export_name is not None else API_EXPORT_NAMES
+        for name in export_names:
             value = getattr(module, name, None)
             api = preview_api_from_value(value)
             if api is not None:
                 return api
+        if export_name is None:
+            for name in FACTORY_EXPORT_NAMES:
+                value = getattr(module, name, None)
+                api = preview_api_from_value(value)
+                if api is not None:
+                    return api
     return None
+
+
+@contextlib.contextmanager
+def preview_runtime_import_roots(module: ModuleType) -> Iterator[None]:
+    """Keep project import roots available while preview factories execute."""
+    roots = [str(path.resolve()) for path in project_import_roots(Path.cwd())]
+    module_file = getattr(module, "__file__", None)
+    if module_file is not None:
+        roots.insert(0, str(Path(module_file).resolve().parent))
+    added_roots = [
+        root
+        for index, root in enumerate(roots)
+        if root not in sys.path and root not in roots[:index]
+    ]
+    sys.path[:0] = added_roots
+    try:
+        yield
+    finally:
+        for root in reversed(added_roots):
+            sys.path.remove(root)
 
 
 def preview_api_from_value(value: Any) -> UseCaseAPI[Any] | None:
