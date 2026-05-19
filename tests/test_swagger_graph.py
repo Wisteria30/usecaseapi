@@ -12,6 +12,7 @@ from usecaseapi.swagger_graph import (
     SwaggerGraphError,
     build_preview_graph,
     reachable_nodes_by_root,
+    resolve_visible_graphs,
 )
 
 
@@ -113,3 +114,33 @@ def test_reachable_nodes_by_root_memoizes_dependency_flows() -> None:
     assert reachable == {
         PARENT.key: frozenset({PARENT.key, CHILD.key, LEAF.key}),
     }
+
+
+def test_resolve_visible_graphs_collapses_true_subgraphs() -> None:
+    """Hide graphs fully contained by a larger graph with the same bindings."""
+    parent_api = bind_graph_api()
+    child_api = UseCaseAPI[None]()
+    child_api.bind(CHILD, parent_api.binding_for_key(CHILD.key).factory, uses=(LEAF,))
+    child_api.bind(LEAF, parent_api.binding_for_key(LEAF.key).factory)
+    parent = build_preview_graph(target="app.composition", api=parent_api, create_context=None)
+    child = build_preview_graph(target="commerce.composition", api=child_api, create_context=None)
+
+    visible = resolve_visible_graphs([child, parent])
+
+    assert [graph.target for graph in visible] == ["app.composition"]
+
+
+def test_resolve_visible_graphs_keeps_partial_or_different_graphs() -> None:
+    """Keep graphs when containment fails because bindings differ."""
+    first = build_preview_graph(target="first.composition", api=bind_graph_api(), create_context=None)
+    second_api = UseCaseAPI[None]()
+    second_api.bind(CHILD, lambda caller: Handler(), uses=(LEAF,))
+    second_api.bind(LEAF, lambda caller: Handler())
+    second = build_preview_graph(target="second.composition", api=second_api, create_context=None)
+
+    visible = resolve_visible_graphs([first, second])
+
+    assert [graph.target for graph in visible] == [
+        "first.composition",
+        "second.composition",
+    ]
