@@ -225,7 +225,8 @@ def test_route_groups_for_single_graph_use_plain_paths() -> None:
 
     assert [group.ref.key for group in groups] == [PARENT.key, CHILD.key, LEAF.key]
     assert groups[0].path == "/_usecases/commerce.checkout/v1/call"
-    assert groups[0].operation_id == "commerce_checkout_v1_call"
+    assert groups[0].operation_id.startswith("commerce_checkout__")
+    assert groups[0].operation_id.endswith("_v1_call")
     assert groups[0].tags == ("commerce.checkout@v1",)
     assert groups[1].tags == ("commerce.checkout@v1",)
 
@@ -266,3 +267,51 @@ def test_route_groups_return_no_groups_for_empty_graphs() -> None:
     groups = route_groups_for_graphs([graph])
 
     assert groups == []
+
+
+def test_route_groups_generate_unique_operation_ids_for_colliding_contract_names() -> None:
+    """Preserve operation id uniqueness when readable contract segments collide."""
+    hyphen_ref = define_usecase(
+        ParentUseCase,
+        Contract(name="billing-refund", version=1, input=Input, output=Output),
+    )
+    underscore_ref = define_usecase(
+        ChildUseCase,
+        Contract(name="billing_refund", version=1, input=Input, output=Output),
+    )
+    non_ascii_ref = define_usecase(
+        LeafUseCase,
+        Contract(name="決済", version=1, input=Input, output=Output),
+    )
+    punctuation_ref = define_usecase(
+        LeafUseCase,
+        Contract(name="!!!", version=1, input=Input, output=Output),
+    )
+    given_api = UseCaseAPI[None]()
+    given_api.bind(hyphen_ref, lambda caller: Handler())
+    given_api.bind(underscore_ref, lambda caller: Handler())
+    given_api.bind(non_ascii_ref, lambda caller: Handler())
+    given_api.bind(punctuation_ref, lambda caller: Handler())
+    graph = build_preview_graph(target="composition", api=given_api, create_context=None)
+
+    operation_ids = [group.operation_id for group in route_groups_for_graphs([graph])]
+
+    assert operation_ids[0] == "billing_refund__YmlsbGluZy1yZWZ1bmQ_v1_call"
+    assert operation_ids[1] == "billing_refund__YmlsbGluZ19yZWZ1bmQ_v1_call"
+    assert operation_ids[2] == "op__5rG65riI_v1_call"
+    assert operation_ids[3] == "op__ISEh_v1_call"
+    assert len(operation_ids) == len(set(operation_ids))
+    assert all(operation_id for operation_id in operation_ids)
+
+
+def test_route_groups_generate_unique_operation_ids_for_colliding_targets() -> None:
+    """Preserve operation id uniqueness when readable target segments collide."""
+    first = build_preview_graph(target="billing-refund", api=bind_graph_api(), create_context=None)
+    second = build_preview_graph(target="billing_refund", api=bind_graph_api(), create_context=None)
+
+    operation_ids = [group.operation_id for group in route_groups_for_graphs([first, second])]
+
+    assert operation_ids[0].startswith("billing_refund__YmlsbGluZy1yZWZ1bmQ__")
+    assert operation_ids[3].startswith("billing_refund__YmlsbGluZ19yZWZ1bmQ__")
+    assert len(operation_ids) == len(set(operation_ids))
+    assert all(operation_id for operation_id in operation_ids)

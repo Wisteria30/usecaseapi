@@ -181,13 +181,18 @@ def route_segment(value: str) -> str:
     """Return a URL-safe route segment without losing the original identity."""
     if ROUTE_SAFE_SEGMENT.fullmatch(value):
         return value
-    encoded = base64.urlsafe_b64encode(value.encode()).decode().rstrip("=")
-    return f"~{encoded}"
+    return f"~{encoded_segment(value)}"
 
 
 def operation_segment(value: str) -> str:
-    """Return a stable OpenAPI operation id segment."""
-    return re.sub(r"[^A-Za-z0-9_]", "_", value).strip("_")
+    """Return a stable injective OpenAPI operation id segment."""
+    readable = re.sub(r"[^A-Za-z0-9_]", "_", value).strip("_") or "op"
+    return f"{readable}__{encoded_segment(value)}"
+
+
+def encoded_segment(value: str) -> str:
+    """Return an unpadded URL-safe base64 segment for a text value."""
+    return base64.urlsafe_b64encode(value.encode()).decode().rstrip("=")
 
 
 def route_groups_for_graphs(graphs: list[PreviewGraph]) -> list[PreviewRouteGroup]:
