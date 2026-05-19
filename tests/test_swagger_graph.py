@@ -25,6 +25,10 @@ class Output(Model):
     value: int
 
 
+class AlternateInput(Model):
+    value: str
+
+
 class ParentUseCase(Protocol):
     async def __call__(self, input: Input) -> Output: ...
 
@@ -54,6 +58,11 @@ LEAF = define_usecase(
 class Handler:
     async def __call__(self, input: Input) -> Output:
         return Output(value=input.value)
+
+
+class AlternateHandler:
+    async def __call__(self, input: AlternateInput) -> Output:
+        return Output(value=len(input.value))
 
 
 def bind_graph_api() -> UseCaseAPI[None]:
@@ -189,6 +198,70 @@ def test_resolve_visible_graphs_keeps_graphs_when_edges_are_not_contained() -> N
     assert [graph.target for graph in visible] == [
         "first.composition",
         "second.composition",
+    ]
+
+
+def test_resolve_visible_graphs_keeps_graphs_when_shared_binding_uses_differ() -> None:
+    """Keep graphs when a shared binding declares different dependency metadata."""
+
+    def parent_factory(caller: object) -> Handler:
+        return Handler()
+
+    def child_factory(caller: object) -> Handler:
+        return Handler()
+
+    def leaf_factory(caller: object) -> Handler:
+        return Handler()
+
+    parent_api = UseCaseAPI[None]()
+    parent_api.bind(PARENT, parent_factory, uses=(CHILD,))
+    parent_api.bind(CHILD, child_factory, uses=(LEAF,))
+    parent_api.bind(LEAF, leaf_factory)
+    child_api = UseCaseAPI[None]()
+    child_api.bind(CHILD, child_factory)
+    child_api.bind(LEAF, leaf_factory)
+    parent = build_preview_graph(target="app.composition", api=parent_api, create_context=None)
+    child = build_preview_graph(target="commerce.composition", api=child_api, create_context=None)
+
+    visible = resolve_visible_graphs([child, parent])
+
+    assert [graph.target for graph in visible] == [
+        "app.composition",
+        "commerce.composition",
+    ]
+
+
+def test_resolve_visible_graphs_keeps_graphs_when_shared_contracts_differ() -> None:
+    """Keep graphs when a shared key points at different contract schema metadata."""
+
+    def child_factory(caller: object) -> Handler:
+        return Handler()
+
+    def alternate_child_factory(caller: object) -> AlternateHandler:
+        return AlternateHandler()
+
+    def leaf_factory(caller: object) -> Handler:
+        return Handler()
+
+    alternate_child = define_usecase(
+        ChildUseCase,
+        Contract(name=CHILD.name, version=CHILD.version, input=AlternateInput, output=Output),
+    )
+    parent_api = UseCaseAPI[None]()
+    parent_api.bind(PARENT, lambda caller: Handler(), uses=(CHILD,))
+    parent_api.bind(CHILD, child_factory, uses=(LEAF,))
+    parent_api.bind(LEAF, leaf_factory)
+    child_api = UseCaseAPI[None]()
+    child_api.bind(alternate_child, alternate_child_factory, uses=(LEAF,))
+    child_api.bind(LEAF, leaf_factory)
+    parent = build_preview_graph(target="app.composition", api=parent_api, create_context=None)
+    child = build_preview_graph(target="commerce.composition", api=child_api, create_context=None)
+
+    visible = resolve_visible_graphs([child, parent])
+
+    assert [graph.target for graph in visible] == [
+        "app.composition",
+        "commerce.composition",
     ]
 
 

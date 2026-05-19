@@ -266,14 +266,27 @@ def graph_contains(parent: PreviewGraph, child: PreviewGraph) -> bool:
         return False
     if not child.nodes <= parent.nodes:
         return False
-    if not child.edges <= parent.edges:
+    if induced_edges(parent, child.nodes) != child.edges:
         return False
     if parent.create_context is not child.create_context:
         return False
     return all(
-        parent.binding_identity_by_key[node] == child.binding_identity_by_key[node]
+        binding_equivalent(parent.binding_by_key[node], child.binding_by_key[node])
+        and parent.binding_identity_by_key[node] == child.binding_identity_by_key[node]
         for node in child.nodes
     )
+
+
+def induced_edges(graph: PreviewGraph, nodes: frozenset[str]) -> frozenset[tuple[str, str]]:
+    """Return graph edges whose parent and child both belong to a node set."""
+    return frozenset(
+        (parent, child) for parent, child in graph.edges if parent in nodes and child in nodes
+    )
+
+
+def binding_equivalent(parent: Binding[Any], child: Binding[Any]) -> bool:
+    """Return whether shared bindings expose the same contract and dependency metadata."""
+    return parent.ref.contract == child.ref.contract and parent.uses == child.uses
 
 
 def graph_sort_key(graph: PreviewGraph) -> tuple[str, tuple[str, ...], tuple[tuple[str, str], ...]]:
@@ -288,7 +301,8 @@ def graph_equivalent(left: PreviewGraph, right: PreviewGraph) -> bool:
         and left.edges == right.edges
         and left.create_context is right.create_context
         and all(
-            left.binding_identity_by_key[node] == right.binding_identity_by_key[node]
+            binding_equivalent(left.binding_by_key[node], right.binding_by_key[node])
+            and left.binding_identity_by_key[node] == right.binding_identity_by_key[node]
             for node in left.nodes
         )
     )
