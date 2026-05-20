@@ -342,6 +342,7 @@ components:
       type: object
       additionalProperties: false
       required: []
+      properties: {}
     CommercePlaceOrderV1PlaceOrderErrorEnvelope:
       title: PlaceOrderErrorEnvelope
       description: Base error for place order failures.
