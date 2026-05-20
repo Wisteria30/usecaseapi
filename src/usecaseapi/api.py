@@ -173,6 +173,7 @@ class Caller[ContextT]:
         """Call a usecase by contract token."""
         self.assert_declared_dependency(ref)
         binding = self._api.binding_for_ref(ref)
+        self.validate_input(ref, input)
         self._records.append(CallRecord(caller_key=self._current_key, callee_key=ref.key))
         output = await self.invoke_binding(ref, binding, input)
         self.validate_output(ref, output)
@@ -235,6 +236,15 @@ class Caller[ContextT]:
             self._api._error_policy.validate(ref, exc)
             raise
 
+    def validate_input(self, ref: UseCaseRef[InputT, Any], input: object) -> None:
+        """Validate that a call received the contract input model."""
+        if isinstance(input, ref.contract.input):
+            return
+        raise InvalidHandlerError(
+            f"input for {ref.key!r} was {type(input).__name__}, "
+            f"expected {ref.contract.input.__name__}"
+        )
+
     def validate_output(self, ref: UseCaseRef[Any, OutputT], output: object) -> None:
         """Validate that a handler returned the contract output model."""
         if isinstance(output, ref.contract.output):
@@ -248,20 +258,10 @@ class Caller[ContextT]:
 class HandlerValidator:
     """Validate handler callable shape independently from the registry."""
 
-    def __init__(self) -> None:
-        """Create an empty validation cache keyed by usecase and handler type."""
-        self._validated_types: set[tuple[str, type[Any]]] = set()
-
     def validate(self, ref: UseCaseRef[Any, Any], handler: UseCase[Any, Any]) -> None:
-        """Validate a handler unless its usecase/type pair has already passed."""
-        handler_type = type(handler)
-        cache_key = (ref.key, handler_type)
-        if cache_key in self._validated_types:
-            return
-
+        """Validate a handler against the referenced usecase contract."""
         target = callable_target(handler)
         self.validate_target(ref, target)
-        self._validated_types.add(cache_key)
 
     def validate_target(self, ref: UseCaseRef[Any, Any], target: Callable[..., Any]) -> None:
         """Validate coroutine shape and annotations on a callable target."""

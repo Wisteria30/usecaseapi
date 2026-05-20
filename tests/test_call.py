@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import asyncio
 
-from typing import ClassVar, Protocol
+from typing import ClassVar, Protocol, cast
 
 import pytest
 
 from usecaseapi import (
     Contract,
+    InvalidHandlerError,
     Model,
     UndeclaredUseCaseDependencyError,
     UndeclaredUseCaseError,
@@ -97,6 +98,43 @@ def test_direct_call_uses_context_and_returns_output() -> None:
     output = asyncio.run(api.caller(Context(multiplier=3)).call(EXAMPLE, Input(value=7)))
 
     assert output == Output(value=21)
+
+
+def test_call_rejects_input_outside_contract_model() -> None:
+    """The runtime rejects values that are not instances of the contract input model."""
+    api = UseCaseAPI[Context]()
+    api.bind(EXAMPLE, lambda caller: GoodImpl(caller.context.multiplier))
+
+    with pytest.raises(InvalidHandlerError, match="expected Input"):
+        asyncio.run(api.caller(Context(multiplier=3)).call(EXAMPLE, cast(Input, Output(value=7))))
+
+
+def test_function_handler_validation_does_not_reuse_cache_for_different_functions() -> None:
+    """Different function handlers for one usecase are each validated."""
+    calls = 0
+
+    async def good(input: Input, /) -> Output:
+        return Output(value=input.value)
+
+    async def bad(input: Output, /) -> Output:
+        return Output(value=input.value)
+
+    def factory(caller: object) -> UseCase[Input, Output]:
+        nonlocal calls
+        del caller
+        calls += 1
+        if calls == 1:
+            return good
+        return cast(UseCase[Input, Output], bad)
+
+    api = UseCaseAPI[Context]()
+    api.bind(EXAMPLE, factory)
+
+    output = asyncio.run(api.caller(Context(multiplier=1)).call(EXAMPLE, Input(value=7)))
+    assert output == Output(value=7)
+
+    with pytest.raises(InvalidHandlerError, match="input annotation"):
+        asyncio.run(api.caller(Context(multiplier=1)).call(EXAMPLE, Input(value=7)))
 
 
 def test_declared_domain_error_is_propagated() -> None:

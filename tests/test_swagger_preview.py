@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import importlib.util
 import inspect
 import sys
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, ClassVar, Protocol
@@ -14,6 +15,8 @@ from typing import Any, ClassVar, Protocol
 import pytest
 
 import usecaseapi.swagger as swagger_module
+import usecaseapi.swagger_preview.app as swagger_app_module
+import usecaseapi.swagger_preview.discovery as swagger_discovery_module
 
 from usecaseapi import (
     Contract,
@@ -93,6 +96,14 @@ def make_bound_api() -> UseCaseAPI[None]:
 def make_preview_graph(api: UseCaseAPI[Any] | None = None) -> PreviewGraph:
     """Create a single preview graph for Swagger app tests."""
     return build_preview_graph(target="preview", api=api or make_bound_api(), create_context=None)
+
+
+async def run_context_resolver(
+    resolver: Callable[[object], Awaitable[Any]],
+    request: object,
+) -> Any:
+    """Run a context resolver through a concrete coroutine for type checkers."""
+    return await resolver(request)
 
 
 def test_discovers_usecaseapi_preview_module(
@@ -184,6 +195,55 @@ def test_discover_composition_targets_ignores_non_usecaseapi_files(tmp_path: Pat
     targets = swagger_module.discover_composition_targets(cwd=tmp_path)
 
     assert [target.target for target in targets] == ["app_shell.composition"]
+
+
+def test_discover_composition_targets_skips_rejected_auto_paths(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Auto discovery rechecks rejected paths before converting them to import targets."""
+    skipped = tmp_path / "src" / "composition.py"
+    skipped.parent.mkdir()
+    skipped.write_text("from usecaseapi import UseCaseAPI\nusecases = UseCaseAPI[None]()\n")
+
+    monkeypatch.setattr(
+        swagger_discovery_module,
+        "project_import_roots",
+        lambda root: (root,),
+    )
+    monkeypatch.setattr(
+        swagger_discovery_module,
+        "iter_composition_files",
+        lambda import_root: [skipped],
+    )
+
+    assert swagger_discovery_module.discover_composition_targets(cwd=tmp_path) == []
+
+
+def test_iter_composition_files_prunes_excluded_dirs(tmp_path: Path) -> None:
+    """Auto discovery does not descend into cache or build output directories."""
+    excluded = tmp_path / ".venv" / "composition.py"
+    accepted = tmp_path / "app_shell" / "composition.py"
+    excluded.parent.mkdir()
+    accepted.parent.mkdir()
+    excluded.write_text("ignored\n", encoding="utf-8")
+    accepted.write_text("accepted\n", encoding="utf-8")
+
+    assert swagger_discovery_module.iter_composition_files(tmp_path) == [accepted]
+
+
+def test_iter_composition_files_ignores_unreadable_directories(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Unreadable directories are skipped during best-effort auto discovery."""
+
+    def raise_oserror(_: Path) -> list[Path]:
+        raise OSError("blocked")
+
+    monkeypatch.setattr(Path, "iterdir", raise_oserror)
+
+    assert swagger_discovery_module.iter_composition_files(tmp_path) == []
 
 
 @pytest.mark.parametrize(
@@ -770,6 +830,93 @@ def test_request_headers_can_drive_preview_context() -> None:
 
     assert response.status_code == 200
     assert response.json() == {"value": 12}
+
+
+def test_context_argument_mode_table() -> None:
+    """Context factory signatures are classified once when endpoints are built."""
+
+    def no_arguments() -> None:
+        return None
+
+    def positional_request(request: object) -> object:
+        return request
+
+    def keyword_request(*, request: object) -> object:
+        return request
+
+    def unsupported(first: object, second: object) -> None:
+        raise AssertionError("unsupported factory should not be called")
+
+    assert swagger_app_module.context_argument_mode(no_arguments) == "none"
+    assert swagger_app_module.context_argument_mode(positional_request) == "positional_request"
+    assert swagger_app_module.context_argument_mode(keyword_request) == "keyword_request"
+    with pytest.raises(SwaggerPreviewError, match="zero arguments or one request argument"):
+        swagger_app_module.context_argument_mode(unsupported)
+
+
+def test_context_resolver_modes_return_sync_and_async_values() -> None:
+    """Context resolvers support the explicit zero, positional, and keyword request modes."""
+
+    async def async_context() -> str:
+        return "async-context"
+
+    def no_arguments() -> object:
+        return async_context()
+
+    def positional_request(request: object) -> object:
+        return request
+
+    def keyword_request(*, request: object) -> tuple[str, object]:
+        return ("keyword", request)
+
+    assert (
+        asyncio.run(
+            run_context_resolver(
+                swagger_app_module.context_resolver_for_mode(no_arguments, "none"),
+                object(),
+            )
+        )
+        == "async-context"
+    )
+    request = object()
+    assert (
+        asyncio.run(
+            run_context_resolver(
+                swagger_app_module.context_resolver_for_mode(
+                    positional_request,
+                    "positional_request",
+                ),
+                request,
+            )
+        )
+        is request
+    )
+    assert asyncio.run(
+        run_context_resolver(
+            swagger_app_module.context_resolver_for_mode(
+                keyword_request,
+                "keyword_request",
+            ),
+            request,
+        )
+    ) == ("keyword", request)
+
+
+def test_build_context_resolver_defers_invalid_signature_errors() -> None:
+    """Invalid preview context signatures are raised when the preview route is invoked."""
+
+    def unsupported(first: object, second: object) -> None:
+        raise AssertionError("unsupported factory should not be called")
+
+    resolver = swagger_app_module.build_context_resolver(unsupported)
+
+    with pytest.raises(SwaggerPreviewError, match="zero arguments or one request argument"):
+        asyncio.run(run_context_resolver(resolver, object()))
+
+
+def test_resolve_context_supports_missing_factory() -> None:
+    """The public resolver helper keeps the default preview context as None."""
+    assert asyncio.run(swagger_app_module.resolve_context(None, object())) is None
 
 
 def test_basic_example_preview_module_runs_scenarios(monkeypatch: pytest.MonkeyPatch) -> None:
