@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import importlib.util
+import inspect
 import sys
 
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from types import SimpleNamespace
-from typing import ClassVar, Protocol
+from typing import Any, ClassVar, Protocol
 
 import pytest
+
+import usecaseapi.swagger as swagger_module
 
 from usecaseapi import (
     Contract,
@@ -21,7 +24,13 @@ from usecaseapi import (
     UseCaseRef,
     define_usecase,
 )
-from usecaseapi.swagger import SwaggerPreviewError, discover_preview_module, load_preview
+from usecaseapi.swagger import (
+    SwaggerPreviewError,
+    discover_preview_module,
+    discover_preview_target,
+    load_preview,
+)
+from usecaseapi.swagger_graph import PreviewGraph, build_preview_graph
 
 
 class PreviewInput(Model):
@@ -81,6 +90,11 @@ def make_bound_api() -> UseCaseAPI[None]:
     return api
 
 
+def make_preview_graph(api: UseCaseAPI[Any] | None = None) -> PreviewGraph:
+    """Create a single preview graph for Swagger app tests."""
+    return build_preview_graph(target="preview", api=api or make_bound_api(), create_context=None)
+
+
 def test_discovers_usecaseapi_preview_module(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -115,13 +129,404 @@ def test_discover_preview_module_reports_supported_names(tmp_path: Path) -> None
     assert "src/composition.py" in message
 
 
+def write_composition_module(path: Path, *, export: str = "usecases") -> None:
+    """Write a minimal importable UseCaseAPI composition module."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        f"from usecaseapi import UseCaseAPI\n\n{export} = UseCaseAPI[None]()\n",
+        encoding="utf-8",
+    )
+
+
+def test_discovers_src_app_shell_composition_target(tmp_path: Path) -> None:
+    """The default preview target can be an ordinary src app composition module."""
+    write_composition_module(tmp_path / "src" / "app_shell" / "composition.py")
+
+    assert discover_preview_target(cwd=tmp_path) == "app_shell.composition"
+
+
+def test_discovers_app_composition_before_package_compositions(tmp_path: Path) -> None:
+    """Whole-app composition modules are preferred over package-level compositions."""
+    write_composition_module(tmp_path / "src" / "packages" / "janken" / "composition.py")
+    write_composition_module(tmp_path / "src" / "packages" / "acchi" / "composition.py")
+    write_composition_module(tmp_path / "src" / "app_shell" / "composition.py")
+
+    assert discover_preview_target(cwd=tmp_path) == "app_shell.composition"
+
+
+def test_discover_preview_target_reports_ambiguous_compositions(tmp_path: Path) -> None:
+    """Equally likely app compositions fail explicitly instead of choosing arbitrarily."""
+    write_composition_module(tmp_path / "src" / "orders" / "composition.py")
+    write_composition_module(tmp_path / "src" / "payments" / "composition.py")
+
+    with pytest.raises(SwaggerPreviewError, match="multiple equally likely preview targets"):
+        discover_preview_target(cwd=tmp_path)
+
+
+def test_discover_preview_target_reports_missing_candidates(tmp_path: Path) -> None:
+    """A project without preview files or composition modules gets an actionable error."""
+    with pytest.raises(SwaggerPreviewError, match="could not find preview target") as exc_info:
+        discover_preview_target(cwd=tmp_path)
+
+    assert "composition module under src/" in str(exc_info.value)
+
+
+def test_discover_composition_targets_ignores_non_usecaseapi_files(tmp_path: Path) -> None:
+    """Auto discovery scans composition.py files but keeps only UseCaseAPI-looking modules."""
+    skipped = tmp_path / "src" / "skipped" / "composition.py"
+    skipped.parent.mkdir(parents=True)
+    skipped.write_text("value = 1\n", encoding="utf-8")
+    invalid = tmp_path / "src" / "bad-name" / "composition.py"
+    write_composition_module(invalid)
+    accepted = tmp_path / "src" / "app_shell" / "composition.py"
+    write_composition_module(accepted)
+
+    targets = swagger_module.discover_composition_targets(cwd=tmp_path)
+
+    assert [target.target for target in targets] == ["app_shell.composition"]
+
+
+@pytest.mark.parametrize(
+    ("path_parts", "import_root_parts", "under_import_root", "expected"),
+    [
+        (("composition.py",), ("src",), False, True),
+        (("src", "app_shell", "composition.py"), (), True, True),
+        (("app_shell", "composition.py"), ("src",), True, False),
+    ],
+)
+def test_should_skip_auto_discovery_path_table(
+    tmp_path: Path,
+    path_parts: tuple[str, ...],
+    import_root_parts: tuple[str, ...],
+    under_import_root: bool,
+    expected: bool,
+) -> None:
+    """Auto discovery skips paths outside ordinary importable source roots."""
+    import_root = tmp_path.joinpath(*import_root_parts)
+    candidate_base = import_root if under_import_root else tmp_path
+    candidate = candidate_base.joinpath(*path_parts)
+
+    result = swagger_module.should_skip_auto_discovery_path(candidate, import_root)
+
+    assert result is expected
+
+
+@pytest.mark.parametrize(
+    ("path_parts", "expected"),
+    [
+        (("src", "app_shell", "composition.py"), "app_shell.composition"),
+        (("src", "bad-name.py"), None),
+        (("../composition.py",), None),
+    ],
+)
+def test_module_name_from_path_table(
+    tmp_path: Path,
+    path_parts: tuple[str, ...],
+    expected: str | None,
+) -> None:
+    """Import module names are derived only from valid Python path segments."""
+    import_root = tmp_path / "src"
+    candidate = tmp_path.joinpath(*path_parts)
+
+    result = swagger_module.module_name_from_path(candidate, import_root)
+
+    assert result == expected
+
+
+@pytest.mark.parametrize(
+    ("content", "expected"),
+    [
+        ("def broken(:\n", False),
+        ("from usecaseapi import UseCaseAPI\nusecases: UseCaseAPI[None]\n", True),
+        (
+            "from usecaseapi import UseCaseAPI\n"
+            "async def create_usecases():\n"
+            "    return UseCaseAPI[None]()\n",
+            True,
+        ),
+    ],
+)
+def test_looks_like_usecaseapi_composition_table(
+    tmp_path: Path,
+    content: str,
+    expected: bool,
+) -> None:
+    """Composition detection is syntax-tolerant and based on public export names."""
+    candidate = tmp_path / "src" / "app_shell" / "composition.py"
+    candidate.parent.mkdir(parents=True)
+    candidate.write_text(content, encoding="utf-8")
+
+    result = swagger_module.looks_like_usecaseapi_composition(candidate)
+
+    assert result is expected
+
+
+@pytest.mark.parametrize(
+    ("module_name", "expected"),
+    [
+        ("app_shell.composition", (0, 2)),
+        ("composition", (1, 1)),
+        ("shop.composition", (2, 2)),
+        ("packages.janken.composition", (3, 3)),
+    ],
+)
+def test_preview_target_score_table(module_name: str, expected: tuple[int, int]) -> None:
+    """Preview target ranking prefers application compositions over package internals."""
+    result = swagger_module.preview_target_score(module_name)
+
+    assert result == expected
+
+
+def test_load_preview_auto_discovers_src_composition_module(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The default preview loader imports the discovered src composition module."""
+    write_composition_module(tmp_path / "src" / "app_shell" / "composition.py")
+    monkeypatch.chdir(tmp_path)
+
+    config = load_preview(None)
+
+    assert len(config.graphs) == 1
+    assert isinstance(config.graphs[0].api, UseCaseAPI)
+    assert config.graphs[0].target == "app_shell.composition"
+
+
+def test_load_preview_auto_discovers_multiple_independent_compositions(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The default preview loader imports every discovered independent composition."""
+    orders = tmp_path / "src" / "orders" / "composition.py"
+    payments = tmp_path / "src" / "payments" / "composition.py"
+    orders.parent.mkdir(parents=True)
+    payments.parent.mkdir(parents=True)
+    module_source = """
+from typing import Protocol
+
+from usecaseapi import Contract, Model, UseCaseAPI, define_usecase
+
+
+class Input(Model):
+    value: int
+
+
+class Output(Model):
+    value: int
+
+
+class RunUseCase(Protocol):
+    async def __call__(self, input: Input) -> Output: ...
+
+
+class Handler:
+    async def __call__(self, input: Input) -> Output:
+        return Output(value=input.value)
+
+
+RUN = define_usecase(
+    RunUseCase,
+    Contract(name="{contract_name}", version=1, input=Input, output=Output),
+)
+usecases = UseCaseAPI[None]()
+usecases.bind(RUN, lambda caller: Handler())
+"""
+    orders.write_text(
+        module_source.format(contract_name="orders.run").lstrip(),
+        encoding="utf-8",
+    )
+    payments.write_text(
+        module_source.format(contract_name="payments.run").lstrip(),
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+
+    config = load_preview(None)
+
+    assert [graph.target for graph in config.graphs] == [
+        "orders.composition",
+        "payments.composition",
+    ]
+
+
+def test_load_preview_accepts_module_export_target(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Explicit module:export targets load without a preview-only file."""
+    write_composition_module(tmp_path / "src" / "app_shell" / "composition.py")
+    monkeypatch.chdir(tmp_path)
+
+    config = load_preview("app_shell.composition:usecases")
+
+    assert len(config.graphs) == 1
+    assert isinstance(config.graphs[0].api, UseCaseAPI)
+    assert config.graphs[0].target == "app_shell.composition:usecases"
+
+
+def test_load_preview_rejects_explicit_target_without_api_export(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Explicit preview targets must expose a UseCaseAPI instance or factory."""
+    preview_path = tmp_path / "src" / "lazy_app" / "composition.py"
+    preview_path.parent.mkdir(parents=True)
+    preview_path.write_text("value = 1\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+
+    with pytest.raises(SwaggerPreviewError, match="UseCaseAPI instance"):
+        load_preview("app_shell.composition:value")
+
+
+def test_load_preview_reports_missing_preview_target(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The graph loader keeps the missing-target error actionable."""
+    monkeypatch.chdir(tmp_path)
+
+    with pytest.raises(SwaggerPreviewError, match="could not find preview target") as exc_info:
+        load_preview(None)
+
+    assert "tests/usecaseapi_preview.py" in str(exc_info.value)
+    assert "composition module under src/" in str(exc_info.value)
+
+
+def test_load_preview_accepts_zero_argument_usecase_factory(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Composition modules can expose a zero-argument create_usecases factory."""
+    preview_path = tmp_path / "src" / "required_factory" / "composition.py"
+    preview_path.parent.mkdir(parents=True)
+    preview_path.write_text(
+        "from usecaseapi import UseCaseAPI\n\n"
+        "def create_usecases() -> UseCaseAPI[None]:\n"
+        "    return UseCaseAPI[None]()\n",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+
+    config = load_preview(None)
+
+    assert len(config.graphs) == 1
+    assert isinstance(config.graphs[0].api, UseCaseAPI)
+
+
+def test_load_preview_keeps_project_import_roots_during_factory_execution(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Preview factories can lazily import project modules under src."""
+    builder_path = tmp_path / "src" / "builders.py"
+    preview_path = tmp_path / "src" / "lazy_app" / "composition.py"
+    builder_path.parent.mkdir(parents=True)
+    preview_path.parent.mkdir(parents=True)
+    builder_path.write_text(
+        "from usecaseapi import UseCaseAPI\n\n"
+        "def make_api() -> UseCaseAPI[None]:\n"
+        "    return UseCaseAPI[None]()\n",
+        encoding="utf-8",
+    )
+    preview_path.write_text(
+        "from usecaseapi import UseCaseAPI\n\n"
+        "def create_usecases() -> UseCaseAPI[None]:\n"
+        "    from builders import make_api\n"
+        "    return make_api()\n",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+
+    config = load_preview("lazy_app.composition:create_usecases")
+
+    assert len(config.graphs) == 1
+    assert isinstance(config.graphs[0].api, UseCaseAPI)
+
+
+def test_load_preview_rejects_factory_with_required_arguments(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Auto factories must be callable without user-provided arguments."""
+    preview_path = tmp_path / "src" / "wrong_factory" / "composition.py"
+    preview_path.parent.mkdir(parents=True)
+    preview_path.write_text(
+        "from usecaseapi import UseCaseAPI\n\n"
+        "def create_usecases(required: str) -> UseCaseAPI[None]:\n"
+        "    return UseCaseAPI[None]()\n",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+
+    with pytest.raises(SwaggerPreviewError, match="zero-argument factory"):
+        load_preview(None)
+
+
+def test_load_preview_ignores_factory_returning_wrong_type(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Factories must return a UseCaseAPI instance."""
+    preview_path = tmp_path / "src" / "wrong_return_factory" / "composition.py"
+    preview_path.parent.mkdir(parents=True)
+    preview_path.write_text("def create_usecases():\n    return object()\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+
+    with pytest.raises(SwaggerPreviewError, match="UseCaseAPI instance"):
+        load_preview(None)
+
+
+def test_import_preview_module_returns_auto_discovered_module(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The import helper returns the module half of the discovered preview target."""
+    write_composition_module(tmp_path / "src" / "app_shell" / "composition.py")
+    monkeypatch.chdir(tmp_path)
+
+    module = swagger_module.import_preview_module(None)
+
+    assert module.__name__ == "app_shell.composition"
+
+
+def test_split_preview_export_rejects_invalid_target() -> None:
+    """Invalid module:export syntax fails before import."""
+    with pytest.raises(SwaggerPreviewError, match="invalid preview target"):
+        swagger_module.split_preview_export("app_shell.composition:")
+
+
+def test_callable_signature_errors_are_not_zero_argument(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Callables whose signature cannot be inspected are not invoked automatically."""
+
+    def factory() -> UseCaseAPI[None]:
+        return UseCaseAPI[None]()
+
+    def raise_type_error(_: object) -> object:
+        raise TypeError("no signature")
+
+    monkeypatch.setattr(inspect, "signature", raise_type_error)
+
+    assert swagger_module.callable_accepts_no_required_arguments(factory) is False
+
+
+def test_async_factory_is_not_zero_argument_preview_factory() -> None:
+    """Preview factories are synchronous so auto loading never creates a coroutine."""
+
+    async def factory() -> UseCaseAPI[None]:
+        return UseCaseAPI[None]()
+
+    assert swagger_module.callable_accepts_no_required_arguments(factory) is False
+
+
 def test_load_preview_requires_api_export(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Preview modules must export a supported UseCaseAPI instance."""
     preview_path = tmp_path / "usecaseapi_preview.py"
     preview_path.write_text("value = 1\n")
     monkeypatch.chdir(tmp_path)
 
-    with pytest.raises(SwaggerPreviewError, match="export 'api' or 'usecases'"):
+    with pytest.raises(SwaggerPreviewError, match="preview module must export one of"):
         load_preview(None)
 
 
@@ -132,7 +537,8 @@ def test_load_preview_accepts_usecases_export(tmp_path: Path) -> None:
 
     config = load_preview(str(preview_path))
 
-    assert isinstance(config.api, UseCaseAPI)
+    assert len(config.graphs) == 1
+    assert isinstance(config.graphs[0].api, UseCaseAPI)
 
 
 def test_load_preview_requires_callable_context_factory(tmp_path: Path) -> None:
@@ -152,7 +558,7 @@ def test_create_swagger_app_calls_bound_usecase() -> None:
 
     from usecaseapi.swagger import create_swagger_app
 
-    client = TestClient(create_swagger_app(api=make_bound_api(), create_context=None))
+    client = TestClient(create_swagger_app(graphs=(make_preview_graph(),)))
 
     response = client.post("/_usecases/preview.run/v1/call", json={"value": 4})
 
@@ -179,7 +585,7 @@ def test_domain_errors_are_returned_as_envelopes() -> None:
     )
     api = UseCaseAPI[None]()
     api.bind(ref, lambda caller: RejectingImpl())
-    client = TestClient(create_swagger_app(api=api, create_context=None))
+    client = TestClient(create_swagger_app(graphs=(make_preview_graph(api),)))
 
     response = client.post("/_usecases/preview.reject/v1/call", json={"value": 1})
 
@@ -198,7 +604,7 @@ def test_swagger_docs_include_usecase_path() -> None:
 
     from usecaseapi.swagger import create_swagger_app
 
-    client = TestClient(create_swagger_app(api=make_bound_api(), create_context=None))
+    client = TestClient(create_swagger_app(graphs=(make_preview_graph(),)))
 
     response = client.get("/openapi.json")
 
@@ -206,11 +612,42 @@ def test_swagger_docs_include_usecase_path() -> None:
     assert "/_usecases/preview.run/v1/call" in response.json()["paths"]
 
 
+def test_create_swagger_app_registers_multiple_graph_routes() -> None:
+    """Multiple preview graphs are registered under composition route prefixes."""
+    from fastapi.testclient import TestClient
+
+    from usecaseapi.swagger import create_swagger_app
+
+    first = build_preview_graph(
+        target="orders.composition",
+        api=make_bound_api(),
+        create_context=None,
+    )
+    second = build_preview_graph(
+        target="payments.composition",
+        api=make_bound_api(),
+        create_context=None,
+    )
+    client = TestClient(create_swagger_app(graphs=(first, second)))
+
+    response = client.get("/openapi.json")
+
+    assert response.status_code == 200
+    paths = response.json()["paths"]
+    assert "/_compositions/orders.composition/_usecases/preview.run/v1/call" in paths
+    assert "/_compositions/payments.composition/_usecases/preview.run/v1/call" in paths
+
+
 def test_swagger_route_path_encodes_reserved_contract_name_syntax() -> None:
     """Contract names containing path syntax still produce callable preview routes."""
     from fastapi.testclient import TestClient
 
-    from usecaseapi.swagger import create_swagger_app, preview_route_name
+    from usecaseapi.swagger import (
+        create_swagger_app,
+        preview_operation_id,
+        preview_route_name,
+        preview_route_path,
+    )
 
     ref: UseCaseRef[PreviewInput, PreviewOutput] = define_usecase(
         PreviewUseCase,
@@ -218,13 +655,15 @@ def test_swagger_route_path_encodes_reserved_contract_name_syntax() -> None:
     )
     api = UseCaseAPI[None]()
     api.bind(ref, lambda caller: PreviewImpl())
-    client = TestClient(create_swagger_app(api=api, create_context=None))
+    client = TestClient(create_swagger_app(graphs=(make_preview_graph(api),)))
     route_name = preview_route_name(ref.contract.name)
     route_path = f"/_usecases/{route_name}/v1/call"
 
     response = client.post(route_path, json={"value": 4})
 
     assert route_name == "~cHJldmlldy97dGVuYW50fS9ydW4"
+    assert preview_route_path(ref) == route_path
+    assert preview_operation_id(ref).endswith("_v1_call")
     assert response.status_code == 200
     assert response.json() == {"value": 5}
     assert route_path in client.get("/openapi.json").json()["paths"]
@@ -236,7 +675,7 @@ def test_swagger_docs_include_preview_scenario_header_parameter() -> None:
 
     from usecaseapi.swagger import create_swagger_app
 
-    client = TestClient(create_swagger_app(api=make_bound_api(), create_context=None))
+    client = TestClient(create_swagger_app(graphs=(make_preview_graph(),)))
 
     response = client.get("/openapi.json")
 
@@ -277,7 +716,8 @@ def test_create_swagger_app_supports_keyword_only_request_context() -> None:
 
     api = UseCaseAPI[int]()
     api.bind(PREVIEW_USECASE, lambda caller: ContextPreviewImpl(caller.context))
-    client = TestClient(create_swagger_app(api=api, create_context=create_context))
+    graph = build_preview_graph(target="preview", api=api, create_context=create_context)
+    client = TestClient(create_swagger_app(graphs=(graph,)))
 
     response = client.post("/_usecases/preview.run/v1/call", json={"value": 4})
 
@@ -297,7 +737,8 @@ def test_create_swagger_app_supports_zero_argument_context_factory() -> None:
     def create_context() -> MultiplierContext:
         return MultiplierContext(multiplier=5)
 
-    client = TestClient(create_swagger_app(api=api, create_context=create_context))
+    graph = build_preview_graph(target="preview", api=api, create_context=create_context)
+    client = TestClient(create_swagger_app(graphs=(graph,)))
 
     response = client.post("/_usecases/preview.run/v1/call", json={"value": 3})
 
@@ -318,7 +759,8 @@ def test_request_headers_can_drive_preview_context() -> None:
     async def create_context(request: Request) -> MultiplierContext:
         return MultiplierContext(multiplier=int(request.headers["x-multiplier"]))
 
-    client = TestClient(create_swagger_app(api=api, create_context=create_context))
+    graph = build_preview_graph(target="preview", api=api, create_context=create_context)
+    client = TestClient(create_swagger_app(graphs=(graph,)))
 
     response = client.post(
         "/_usecases/preview.run/v1/call",
@@ -339,7 +781,7 @@ def test_basic_example_preview_module_runs_scenarios(monkeypatch: pytest.MonkeyP
     monkeypatch.chdir("examples/basic")
 
     config = load_preview(None)
-    client = TestClient(create_swagger_app(api=config.api, create_context=config.create_context))
+    client = TestClient(create_swagger_app(graphs=config.graphs))
     payload = {"user_id": "user_123", "item": {"sku_id": "sku_456", "quantity": 2}}
 
     accepted = client.post("/_usecases/commerce.place_order/v1/call", json=payload)
@@ -367,7 +809,7 @@ def test_basic_example_preview_module_rejects_unknown_scenario(
 
     config = load_preview(None)
     client = TestClient(
-        create_swagger_app(api=config.api, create_context=config.create_context),
+        create_swagger_app(graphs=config.graphs),
         raise_server_exceptions=False,
     )
 
@@ -394,7 +836,15 @@ def test_context_factory_rejects_unsupported_signature() -> None:
         raise AssertionError("unsupported context factory should not be called")
 
     client = TestClient(
-        create_swagger_app(api=make_bound_api(), create_context=create_context),
+        create_swagger_app(
+            graphs=(
+                build_preview_graph(
+                    target="preview",
+                    api=make_bound_api(),
+                    create_context=create_context,
+                ),
+            )
+        ),
         raise_server_exceptions=False,
     )
 
@@ -426,7 +876,7 @@ def test_create_swagger_app_reports_missing_fastapi(monkeypatch: pytest.MonkeyPa
     monkeypatch.setattr(builtins, "__import__", guarded_import)
 
     with pytest.raises(SwaggerPreviewError, match="uv sync --extra swagger"):
-        create_swagger_app(api=make_bound_api(), create_context=None)
+        create_swagger_app(graphs=(make_preview_graph(),))
 
 
 def test_serve_swagger_preview_reports_missing_uvicorn(monkeypatch: pytest.MonkeyPatch) -> None:
