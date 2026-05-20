@@ -2569,6 +2569,7 @@ def test_manifest_named_helpers_cover_edge_branches(
 ) -> None:
     """Helper edge cases stay explicit for full line coverage."""
     import usecaseapi._manifest.code_first as code_first_module
+    import usecaseapi._manifest.code_first_types as code_first_types_module
 
     class AnnotatedError(UseCaseError):
         code: ClassVar[str] = "annotated"
@@ -2593,7 +2594,7 @@ def test_manifest_named_helpers_cover_edge_branches(
             raise NameError("missing")
         return original_get_type_hints(value)
 
-    monkeypatch.setattr(code_first_module, "get_type_hints", failing_class_hints)
+    monkeypatch.setattr(code_first_types_module, "get_type_hints", failing_class_hints)
     assert manifest_module.error_fields(AnnotatedError) == [
         {"name": "detail", "type": "str", "required": True}
     ]
@@ -2605,9 +2606,13 @@ def test_manifest_named_helpers_cover_edge_branches(
             raise ValueError("no signature")
         return original_signature(value)
 
-    monkeypatch.setattr("usecaseapi._manifest.code_first.inspect.signature", failing_signature)
+    monkeypatch.setattr(
+        "usecaseapi._manifest.code_first_types.inspect.signature", failing_signature
+    )
     assert manifest_module.error_fields(VariadicError) == []
-    monkeypatch.setattr("usecaseapi._manifest.code_first.inspect.signature", original_signature)
+    monkeypatch.setattr(
+        "usecaseapi._manifest.code_first_types.inspect.signature", original_signature
+    )
     assert manifest_module.error_fields(VariadicError) == []
     assert manifest_module.error_fields(UnannotatedError) == []
 
