@@ -8,15 +8,15 @@ from typing import Any
 
 import yaml
 
-from .common import (
+from usecaseapi.manifest_domain.common import (
     LEGACY_MANIFEST_KIND,
     ManifestError,
 )
-from .openapi_profile_validation import (
+from usecaseapi.manifest_domain.openapi.profile_validation import (
     validate_openapi_manifest,
     validate_semantic_manifest,
 )
-from .openapi_usecase_projection import semantic_from_openapi_manifest
+from usecaseapi.manifest_domain.openapi.usecase_projection import semantic_from_openapi_manifest
 
 
 def dump_manifest(manifest: Mapping[str, Any], path: str | Path) -> None:

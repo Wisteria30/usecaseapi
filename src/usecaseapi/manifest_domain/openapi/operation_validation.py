@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from .common import (
+from usecaseapi.manifest_domain.common import (
     _OPENAPI_JSON_CONTENT_KEYS,
     _OPENAPI_LIFECYCLE_KEYS,
     _OPENAPI_MEDIA_TYPE_KEYS,
@@ -19,18 +19,18 @@ from .common import (
     PROTOCOL_KIND,
     ManifestError,
 )
-from .helpers import (
-    required_mapping,
-    required_string,
-    string_list,
-)
-from .openapi_components import schema_by_ref
-from .openapi_naming import (
+from usecaseapi.manifest_domain.openapi.components import schema_by_ref
+from usecaseapi.manifest_domain.openapi.naming import (
     component_name,
     component_ref_path,
     dependency_name,
     operation_id,
     response_component_name,
+)
+from usecaseapi.manifest_domain.shared.helpers import (
+    required_mapping,
+    required_string,
+    string_list,
 )
 
 

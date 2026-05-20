@@ -5,12 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from .accessors import (
-    manifest_errors,
-    manifest_models,
-    usecase_items_from_semantic,
-)
-from .common import (
+from usecaseapi.manifest_domain.common import (
     _OPENAPI_JSON_SCHEMA_DIALECT,
     MANIFEST_PROFILE_KIND,
     OPENAPI_VERSION,
@@ -19,15 +14,7 @@ from .common import (
     USECASEAPI_VERSION,
     ManifestError,
 )
-from .helpers import (
-    required_int,
-    required_mapping,
-    required_string,
-    string_list,
-    string_or_default,
-    without_none,
-)
-from .openapi_naming import (
+from usecaseapi.manifest_domain.openapi.naming import (
     component_name,
     component_ref,
     component_ref_path,
@@ -40,14 +27,27 @@ from .openapi_naming import (
     response_description,
     usecase_operation_path,
 )
-from .openapi_schema_generation import (
+from usecaseapi.manifest_domain.openapi.schema_generation import (
     error_envelope_schema,
     error_payload_schema,
     model_schema,
 )
-from .semantic import (
+from usecaseapi.manifest_domain.semantic.accessors import (
+    manifest_errors,
+    manifest_models,
+    usecase_items_from_semantic,
+)
+from usecaseapi.manifest_domain.semantic.catalog import (
     project_name_from_semantic,
     usecase_key,
+)
+from usecaseapi.manifest_domain.shared.helpers import (
+    required_int,
+    required_mapping,
+    required_string,
+    string_list,
+    string_or_default,
+    without_none,
 )
 
 

@@ -13,8 +13,7 @@ from typing import Any
 
 from usecaseapi.contracts import UseCaseRef
 from usecaseapi.errors import UseCaseError
-
-from .common import (
+from usecaseapi.manifest_domain.common import (
     _EMPTY_SCHEMA_KEYS,
     ManifestError,
 )

@@ -10,28 +10,27 @@ from typing import Any, cast
 import yaml
 
 from usecaseapi.api import UseCaseAPI
-
-from .code_first import (
+from usecaseapi.manifest_domain.code_first.exporter import (
     collect_added_removed,
     collect_changed_usecase,
     diff_manifest_with_api,
 )
-from .common import (
+from usecaseapi.manifest_domain.common import (
     OPENAPI_VERSION,
     ContractCheckReport,
     ManifestDiff,
     ManifestError,
     ManifestGuardReport,
 )
-from .helpers import (
+from usecaseapi.manifest_domain.io import (
+    load_manifest,
+    validate_manifest,
+)
+from usecaseapi.manifest_domain.semantic.catalog import index_usecases
+from usecaseapi.manifest_domain.shared.helpers import (
     required_int,
     required_mapping,
     required_string,
-)
-from .semantic import index_usecases
-from .validation import (
-    load_manifest,
-    validate_manifest,
 )
 
 

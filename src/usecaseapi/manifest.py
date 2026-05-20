@@ -5,14 +5,14 @@ from __future__ import annotations
 from importlib import import_module
 
 _EXPORTS = {
-    "._manifest.accessors": (
+    ".manifest_domain.semantic.accessors": (
         "manifest_errors",
         "manifest_fields",
         "manifest_models",
         "usecase_items",
         "usecase_items_from_semantic",
     ),
-    "._manifest.code_first": (
+    ".manifest_domain.code_first.exporter": (
         "collect_added_removed",
         "collect_changed_usecase",
         "collect_declared_set_change",
@@ -24,7 +24,7 @@ _EXPORTS = {
         "manifest_from_api",
         "ref_to_manifest_usecase",
     ),
-    "._manifest.code_first_types": (
+    ".manifest_domain.code_first.types": (
         "collect_errors",
         "collect_models",
         "error_fields",
@@ -38,7 +38,7 @@ _EXPORTS = {
         "validate_representable_field",
         "validate_representable_model",
     ),
-    "._manifest.common": (
+    ".manifest_domain.common": (
         "_BUILTIN_TYPE_NAMES",
         "_EMPTY_SCHEMA_KEYS",
         "_GENERIC_TYPE_NAMES",
@@ -80,7 +80,7 @@ _EXPORTS = {
         "ManifestGuardReport",
         "ManifestScaffoldResult",
     ),
-    "._manifest.contract_check": (
+    ".manifest_domain.contract_check.report": (
         "_local_component_ref_from_string",
         "_local_component_refs",
         "_reachable_component_refs",
@@ -96,7 +96,7 @@ _EXPORTS = {
         "run_contract_check",
         "sort_json_like",
     ),
-    "._manifest.helpers": (
+    ".manifest_domain.shared.helpers": (
         "class_name",
         "default_contract_file",
         "default_implementation_class",
@@ -125,7 +125,7 @@ _EXPORTS = {
         "without_none",
         "write_generated_file",
     ),
-    "._manifest.json_schema_types": (
+    ".manifest_domain.openapi.json_schema_types": (
         "any_of_schema_to_type_expr",
         "array_schema_to_type_expr",
         "enum_schema_to_type_expr",
@@ -140,7 +140,7 @@ _EXPORTS = {
         "validate_schema_to_type_expr_profile",
         "validate_string_schema_profile",
     ),
-    "._manifest.openapi": (
+    ".manifest_domain.openapi.manifest": (
         "domain_error_response",
         "openapi_components",
         "openapi_error_components",
@@ -150,7 +150,7 @@ _EXPORTS = {
         "openapi_root_extension",
         "openapi_uses",
     ),
-    "._manifest.openapi_components": (
+    ".manifest_domain.openapi.components": (
         "class_name_from_component_ref",
         "component_prefix",
         "component_schemas",
@@ -161,7 +161,7 @@ _EXPORTS = {
         "uses_from_extension",
         "validate_openapi_object_model_schema",
     ),
-    "._manifest.openapi_naming": (
+    ".manifest_domain.openapi.naming": (
         "component_name",
         "component_ref",
         "component_ref_path",
@@ -175,7 +175,7 @@ _EXPORTS = {
         "schema_kind",
         "usecase_operation_path",
     ),
-    "._manifest.openapi_operation_validation": (
+    ".manifest_domain.openapi.operation_validation": (
         "openapi_default_response_ref",
         "openapi_error_envelope_refs",
         "openapi_error_response_envelope_refs",
@@ -195,7 +195,7 @@ _EXPORTS = {
         "validate_openapi_operation_uses",
         "validate_openapi_path_item",
     ),
-    "._manifest.openapi_profile_validation": (
+    ".manifest_domain.openapi.profile_validation": (
         "validate_openapi_components_shape",
         "validate_openapi_manifest",
         "validate_openapi_root_extension_shape",
@@ -205,7 +205,7 @@ _EXPORTS = {
         "validate_openapi_tags",
         "validate_semantic_manifest",
     ),
-    "._manifest.openapi_schema_generation": (
+    ".manifest_domain.openapi.schema_generation": (
         "ast_arg_schema",
         "error_envelope_schema",
         "error_payload_schema",
@@ -217,14 +217,14 @@ _EXPORTS = {
         "type_ast_to_schema",
         "type_expr_to_schema",
     ),
-    "._manifest.openapi_usecase_projection": (
+    ".manifest_domain.openapi.usecase_projection": (
         "openapi_operation_declares_errors",
         "openapi_operation_to_usecase",
         "semantic_from_openapi_manifest",
         "semantic_layout",
         "source_from_python_binding",
     ),
-    "._manifest.rendering": (
+    ".manifest_domain.scaffold.rendering": (
         "collect_type_exprs",
         "optional_contract_metadata_lines",
         "py_string_literal",
@@ -239,7 +239,7 @@ _EXPORTS = {
         "typing_imports",
         "usecaseapi_imports",
     ),
-    "._manifest.scaffold": (
+    ".manifest_domain.scaffold.generator": (
         "render_contract_module",
         "render_implementation_module",
         "render_manifest_graph",
@@ -251,7 +251,7 @@ _EXPORTS = {
         "safe_manifest_file_under_root",
         "scaffold_from_manifest",
     ),
-    "._manifest.semantic": (
+    ".manifest_domain.semantic.catalog": (
         "error_map",
         "index_usecases",
         "model_field_changes",
@@ -265,7 +265,7 @@ _EXPORTS = {
         "semantic_manifest",
         "usecase_key",
     ),
-    "._manifest.semantic_validation": (
+    ".manifest_domain.semantic.validation": (
         "is_supported_literal_value",
         "is_supported_literal_value_object",
         "top_level_type_ast_allows_none",
@@ -290,7 +290,7 @@ _EXPORTS = {
         "validate_usecase_manifest",
         "validate_uses",
     ),
-    "._manifest.validation": (
+    ".manifest_domain.io": (
         "dump_manifest",
         "load_manifest",
         "manifest_to_yaml",

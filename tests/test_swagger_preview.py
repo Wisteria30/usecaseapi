@@ -14,9 +14,9 @@ from typing import Any, ClassVar, Protocol
 
 import pytest
 
-import usecaseapi._swagger.app as swagger_app_module
-import usecaseapi._swagger.discovery as swagger_discovery_module
 import usecaseapi.swagger as swagger_module
+import usecaseapi.swagger_preview.app as swagger_app_module
+import usecaseapi.swagger_preview.discovery as swagger_discovery_module
 
 from usecaseapi import (
     Contract,

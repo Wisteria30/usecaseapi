@@ -1,0 +1,1 @@
+"""Shared Manifest domain helpers."""

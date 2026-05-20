@@ -2568,8 +2568,8 @@ def test_manifest_named_helpers_cover_edge_branches(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Helper edge cases stay explicit for full line coverage."""
-    import usecaseapi._manifest.code_first as code_first_module
-    import usecaseapi._manifest.code_first_types as code_first_types_module
+    import usecaseapi.manifest_domain.code_first.exporter as code_first_module
+    import usecaseapi.manifest_domain.code_first.types as code_first_types_module
 
     class AnnotatedError(UseCaseError):
         code: ClassVar[str] = "annotated"
@@ -2607,11 +2607,11 @@ def test_manifest_named_helpers_cover_edge_branches(
         return original_signature(value)
 
     monkeypatch.setattr(
-        "usecaseapi._manifest.code_first_types.inspect.signature", failing_signature
+        "usecaseapi.manifest_domain.code_first.types.inspect.signature", failing_signature
     )
     assert manifest_module.error_fields(VariadicError) == []
     monkeypatch.setattr(
-        "usecaseapi._manifest.code_first_types.inspect.signature", original_signature
+        "usecaseapi.manifest_domain.code_first.types.inspect.signature", original_signature
     )
     assert manifest_module.error_fields(VariadicError) == []
     assert manifest_module.error_fields(UnannotatedError) == []
@@ -2657,10 +2657,12 @@ def test_manifest_named_helpers_cover_edge_branches(
         pass
 
     assert manifest_module.source_file(1) is None
-    monkeypatch.setattr("usecaseapi._manifest.helpers.inspect.getsourcefile", lambda value: None)
+    monkeypatch.setattr(
+        "usecaseapi.manifest_domain.shared.helpers.inspect.getsourcefile", lambda value: None
+    )
     assert manifest_module.source_file(Args) is None
     monkeypatch.setattr(
-        "usecaseapi._manifest.helpers.inspect.getsourcefile",
+        "usecaseapi.manifest_domain.shared.helpers.inspect.getsourcefile",
         lambda value: str(tmp_path / "outside.py"),
     )
     assert manifest_module.source_file(Args) == (tmp_path / "outside.py").as_posix()
@@ -3196,7 +3198,7 @@ def test_manifest_v2_error_schema_remaining_error_branches() -> None:
 
 def test_manifest_openapi_generation_duplicate_guards(monkeypatch: pytest.MonkeyPatch) -> None:
     """OpenAPI conversion rejects duplicate generated paths, operations, schemas, and responses."""
-    import usecaseapi._manifest.openapi as openapi_module
+    import usecaseapi.manifest_domain.openapi.manifest as openapi_module
 
     base = minimal_manifest()["usecases"][0]
 
@@ -3395,7 +3397,7 @@ def test_manifest_type_reference_and_path_remaining_error_branches(
         def is_absolute(self) -> bool:
             return True
 
-    import usecaseapi._manifest.semantic_validation as semantic_validation_module
+    import usecaseapi.manifest_domain.semantic.validation as semantic_validation_module
 
     monkeypatch.setattr(semantic_validation_module, "Path", AbsolutePath)
     with pytest.raises(ManifestError, match="must be a relative path"):

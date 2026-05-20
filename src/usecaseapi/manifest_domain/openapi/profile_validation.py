@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from .common import (
+from usecaseapi.manifest_domain.common import (
     _OPENAPI_COMPONENT_KEYS,
     _OPENAPI_JSON_SCHEMA_DIALECT,
     _OPENAPI_ROOT_EXTENSION_COMPONENT_KEYS,
@@ -20,11 +20,11 @@ from .common import (
     USECASEAPI_VERSION,
     ManifestError,
 )
-from .helpers import (
+from usecaseapi.manifest_domain.semantic.validation import validate_usecase_manifest
+from usecaseapi.manifest_domain.shared.helpers import (
     required_mapping,
     required_string,
 )
-from .semantic_validation import validate_usecase_manifest
 
 
 def validate_openapi_manifest(manifest: Mapping[str, Any]) -> None:

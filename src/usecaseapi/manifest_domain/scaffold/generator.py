@@ -6,18 +6,39 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from .accessors import (
+from usecaseapi.manifest_domain.common import (
+    OPENAPI_VERSION,
+    ManifestError,
+    ManifestScaffoldResult,
+)
+from usecaseapi.manifest_domain.io import validate_manifest
+from usecaseapi.manifest_domain.openapi.usecase_projection import semantic_from_openapi_manifest
+from usecaseapi.manifest_domain.scaffold.rendering import (
+    collect_type_exprs,
+    py_string_literal,
+    render_contract_binding,
+    render_error_class,
+    render_model_class,
+    stdlib_import_lines,
+    typing_imports,
+    usecaseapi_imports,
+)
+from usecaseapi.manifest_domain.semantic.accessors import (
     manifest_errors,
     manifest_fields,
     manifest_models,
     usecase_items_from_semantic,
 )
-from .common import (
-    OPENAPI_VERSION,
-    ManifestError,
-    ManifestScaffoldResult,
+from usecaseapi.manifest_domain.semantic.catalog import (
+    node_id,
+    usecase_key,
 )
-from .helpers import (
+from usecaseapi.manifest_domain.semantic.validation import (
+    validate_contract_file_module,
+    validate_manifest_file_path,
+    validate_usecase_manifest,
+)
+from usecaseapi.manifest_domain.shared.helpers import (
     default_contract_file,
     default_implementation_file,
     default_manifest_test_file,
@@ -30,27 +51,6 @@ from .helpers import (
     string_or_default,
     write_generated_file,
 )
-from .openapi_usecase_projection import semantic_from_openapi_manifest
-from .rendering import (
-    collect_type_exprs,
-    py_string_literal,
-    render_contract_binding,
-    render_error_class,
-    render_model_class,
-    stdlib_import_lines,
-    typing_imports,
-    usecaseapi_imports,
-)
-from .semantic import (
-    node_id,
-    usecase_key,
-)
-from .semantic_validation import (
-    validate_contract_file_module,
-    validate_manifest_file_path,
-    validate_usecase_manifest,
-)
-from .validation import validate_manifest
 
 
 def scaffold_from_manifest(

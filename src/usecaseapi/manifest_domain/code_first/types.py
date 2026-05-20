@@ -10,9 +10,8 @@ from typing import Any, ClassVar, Literal, Union, get_args, get_origin, get_type
 from pydantic.fields import FieldInfo
 
 from usecaseapi.errors import UseCaseError
+from usecaseapi.manifest_domain.common import ManifestError
 from usecaseapi.model import Model
-
-from .common import ManifestError
 
 
 def model_to_manifest(model_type: type[Model]) -> dict[str, Any]:

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from ._swagger.app import (
+from .swagger_preview.app import (
     create_swagger_app as create_swagger_app,
     domain_error_envelope as domain_error_envelope,
     is_port_available as is_port_available,
@@ -18,7 +18,7 @@ from ._swagger.app import (
     select_available_port as select_available_port,
     serve_swagger_preview as serve_swagger_preview,
 )
-from ._swagger.discovery import (
+from .swagger_preview.discovery import (
     API_EXPORT_NAMES as API_EXPORT_NAMES,
     AUTO_DISCOVERY_EXCLUDED_DIRS as AUTO_DISCOVERY_EXCLUDED_DIRS,
     FACTORY_EXPORT_NAMES as FACTORY_EXPORT_NAMES,
@@ -36,7 +36,7 @@ from ._swagger.discovery import (
     project_import_roots as project_import_roots,
     should_skip_auto_discovery_path as should_skip_auto_discovery_path,
 )
-from ._swagger.imports import (
+from .swagger_preview.imports import (
     callable_accepts_no_required_arguments as callable_accepts_no_required_arguments,
     import_preview_file as import_preview_file,
     import_preview_module as import_preview_module,

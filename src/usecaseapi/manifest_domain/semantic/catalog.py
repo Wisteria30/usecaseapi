@@ -7,17 +7,17 @@ import ast
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from .accessors import (
+from usecaseapi.manifest_domain.common import (
+    LEGACY_MANIFEST_KIND,
+    OPENAPI_VERSION,
+)
+from usecaseapi.manifest_domain.semantic.accessors import (
     manifest_errors,
     manifest_fields,
     manifest_models,
     usecase_items,
 )
-from .common import (
-    LEGACY_MANIFEST_KIND,
-    OPENAPI_VERSION,
-)
-from .helpers import (
+from usecaseapi.manifest_domain.shared.helpers import (
     required_int,
     required_string,
     string_list,
@@ -126,7 +126,7 @@ def model_names_from_type_expr(
 
 def semantic_manifest(manifest: Mapping[str, Any]) -> dict[str, Any]:
     """Return the semantic subset used for sync comparison."""
-    from .validation import validate_manifest
+    from usecaseapi.manifest_domain.io import validate_manifest
 
     validate_manifest(manifest)
     return {
@@ -178,7 +178,9 @@ def project_name_from_semantic(manifest: Mapping[str, Any]) -> str | None:
 def package_name(manifest: Mapping[str, Any]) -> str | None:
     """Read Manifest package name when present."""
     if manifest.get("openapi") == OPENAPI_VERSION:
-        from .openapi_usecase_projection import semantic_from_openapi_manifest
+        from usecaseapi.manifest_domain.openapi.usecase_projection import (
+            semantic_from_openapi_manifest,
+        )
 
         layout = semantic_from_openapi_manifest(manifest).get("layout")
     else:

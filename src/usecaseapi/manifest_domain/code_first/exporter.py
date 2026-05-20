@@ -8,20 +8,27 @@ from typing import Any, cast
 
 from usecaseapi.api import UseCaseAPI
 from usecaseapi.contracts import UseCaseRef
-
-from .code_first_types import (
+from usecaseapi.manifest_domain.code_first.types import (
     collect_errors,
     collect_models,
     error_to_manifest,
     model_to_manifest,
 )
-from .common import (
+from usecaseapi.manifest_domain.common import (
     LEGACY_MANIFEST_KIND,
     LEGACY_PROTOCOL_KIND,
     PROTOCOL_KIND,
     ManifestDiff,
 )
-from .helpers import (
+from usecaseapi.manifest_domain.io import validate_manifest
+from usecaseapi.manifest_domain.openapi.manifest import openapi_manifest_from_semantic
+from usecaseapi.manifest_domain.semantic.catalog import (
+    error_map,
+    model_field_changes,
+    package_name,
+    project_name,
+)
+from usecaseapi.manifest_domain.shared.helpers import (
     class_name,
     default_implementation_class,
     default_implementation_path,
@@ -35,14 +42,6 @@ from .helpers import (
     trim_to_root,
     without_none,
 )
-from .openapi import openapi_manifest_from_semantic
-from .semantic import (
-    error_map,
-    model_field_changes,
-    package_name,
-    project_name,
-)
-from .validation import validate_manifest
 
 
 def manifest_from_api(
@@ -150,7 +149,7 @@ def infer_contracts_root(*, package: str | None, implementations_root: str) -> s
 
 def diff_manifest_with_api(api: UseCaseAPI[Any], manifest: Mapping[str, Any]) -> ManifestDiff:
     """Compare a Manifest file with the Manifest exported from code."""
-    from .contract_check import diff_manifests
+    from usecaseapi.manifest_domain.contract_check.report import diff_manifests
 
     exported = manifest_from_api(
         api, project=project_name(manifest), package=package_name(manifest)

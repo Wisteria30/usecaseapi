@@ -5,11 +5,11 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from .common import (
+from usecaseapi.manifest_domain.common import (
     LEGACY_MANIFEST_KIND,
     ManifestError,
 )
-from .helpers import required_mapping
+from usecaseapi.manifest_domain.shared.helpers import required_mapping
 
 
 def manifest_models(usecase: Mapping[str, Any]) -> list[Mapping[str, Any]]:
@@ -41,7 +41,9 @@ def usecase_items(manifest: Mapping[str, Any]) -> list[Mapping[str, Any]]:
     if manifest.get("kind") == LEGACY_MANIFEST_KIND or "usecases" in manifest:
         value = manifest.get("usecases")
     else:
-        from .openapi_usecase_projection import semantic_from_openapi_manifest
+        from usecaseapi.manifest_domain.openapi.usecase_projection import (
+            semantic_from_openapi_manifest,
+        )
 
         value = semantic_from_openapi_manifest(manifest).get("usecases")
     if not isinstance(value, list):

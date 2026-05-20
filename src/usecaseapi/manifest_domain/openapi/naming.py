@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from .helpers import (
+from usecaseapi.manifest_domain.shared.helpers import (
     pascal_identifier,
     required_int,
     required_string,

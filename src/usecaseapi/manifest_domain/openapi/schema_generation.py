@@ -7,19 +7,19 @@ import ast
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from .accessors import manifest_fields
-from .helpers import (
+from usecaseapi.manifest_domain.openapi.naming import (
+    component_name,
+    component_ref,
+    schema_kind,
+)
+from usecaseapi.manifest_domain.semantic.accessors import manifest_fields
+from usecaseapi.manifest_domain.semantic.validation import validate_type_expr
+from usecaseapi.manifest_domain.shared.helpers import (
     required_int,
     required_string,
     subscript_args,
     without_none,
 )
-from .openapi_naming import (
-    component_name,
-    component_ref,
-    schema_kind,
-)
-from .semantic_validation import validate_type_expr
 
 
 def model_schema(usecase: Mapping[str, Any], model: Mapping[str, Any]) -> dict[str, Any]:

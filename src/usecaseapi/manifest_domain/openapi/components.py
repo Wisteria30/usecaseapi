@@ -5,11 +5,13 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from .common import (
+from usecaseapi.manifest_domain.common import (
     _OPENAPI_OBJECT_MODEL_SCHEMA_KEYS,
     ManifestError,
 )
-from .helpers import (
+from usecaseapi.manifest_domain.openapi.json_schema_types import schema_to_type_expr
+from usecaseapi.manifest_domain.openapi.naming import component_name
+from usecaseapi.manifest_domain.shared.helpers import (
     pascal_identifier,
     required_mapping,
     required_string,
@@ -17,8 +19,6 @@ from .helpers import (
     valid_python_identifier,
     without_none,
 )
-from .json_schema_types import schema_to_type_expr
-from .openapi_naming import component_name
 
 
 def models_from_components(

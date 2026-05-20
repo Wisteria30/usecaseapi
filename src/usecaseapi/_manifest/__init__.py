@@ -1,1 +1,0 @@
-"""Internal Manifest implementation package."""

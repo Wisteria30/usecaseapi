@@ -7,13 +7,13 @@ import ast
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from .accessors import manifest_fields
-from .common import ManifestError
-from .helpers import (
+from usecaseapi.manifest_domain.common import ManifestError
+from usecaseapi.manifest_domain.semantic.accessors import manifest_fields
+from usecaseapi.manifest_domain.semantic.validation import type_expr_allows_none
+from usecaseapi.manifest_domain.shared.helpers import (
     required_string,
     string_or_default,
 )
-from .semantic_validation import type_expr_allows_none
 
 
 def render_model_class(model: Mapping[str, Any]) -> list[str]:

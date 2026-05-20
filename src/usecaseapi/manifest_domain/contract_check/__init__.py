@@ -1,0 +1,1 @@
+"""Manifest contract check implementation."""

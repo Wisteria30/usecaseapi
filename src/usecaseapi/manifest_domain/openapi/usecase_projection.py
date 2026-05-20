@@ -5,30 +5,30 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from .common import (
+from usecaseapi.manifest_domain.common import (
     LEGACY_MANIFEST_KIND,
     PROTOCOL_KIND,
     ManifestError,
 )
-from .helpers import (
+from usecaseapi.manifest_domain.openapi.components import (
+    errors_from_components,
+    models_from_components,
+    uses_from_extension,
+)
+from usecaseapi.manifest_domain.openapi.operation_validation import (
+    validate_openapi_operation_contract_schemas,
+    validate_openapi_operation_extension,
+    validate_openapi_operation_identity,
+    validate_openapi_operation_shape,
+    validate_openapi_path_item,
+)
+from usecaseapi.manifest_domain.shared.helpers import (
     required_int,
     required_mapping,
     required_string,
     string_list,
     string_or_default,
     without_none,
-)
-from .openapi_components import (
-    errors_from_components,
-    models_from_components,
-    uses_from_extension,
-)
-from .openapi_operation_validation import (
-    validate_openapi_operation_contract_schemas,
-    validate_openapi_operation_extension,
-    validate_openapi_operation_identity,
-    validate_openapi_operation_shape,
-    validate_openapi_path_item,
 )
 
 

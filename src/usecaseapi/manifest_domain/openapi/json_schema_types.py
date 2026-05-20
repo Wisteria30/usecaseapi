@@ -5,13 +5,13 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any, cast
 
-from .common import (
+from usecaseapi.manifest_domain.common import (
     _JSON_SCHEMA_PRIMITIVE_TYPES,
     _JSON_SCHEMA_STRING_FORMATS,
     _SCHEMA_METADATA_KEYS,
     ManifestError,
 )
-from .semantic_validation import is_supported_literal_value_object
+from usecaseapi.manifest_domain.semantic.validation import is_supported_literal_value_object
 
 
 def schema_to_type_expr(
@@ -25,7 +25,7 @@ def schema_to_type_expr(
         return "Any"
     ref = schema.get("$ref")
     if isinstance(ref, str):
-        from .openapi_components import class_name_from_component_ref
+        from usecaseapi.manifest_domain.openapi.components import class_name_from_component_ref
 
         return class_name_from_component_ref(ref, component_name_prefix=component_name_prefix)
     enum = schema.get("enum")

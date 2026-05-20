@@ -8,17 +8,17 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-from .accessors import (
-    manifest_errors,
-    manifest_fields,
-    manifest_models,
-)
-from .common import (
+from usecaseapi.manifest_domain.common import (
     _BUILTIN_TYPE_NAMES,
     _GENERIC_TYPE_NAMES,
     ManifestError,
 )
-from .helpers import (
+from usecaseapi.manifest_domain.semantic.accessors import (
+    manifest_errors,
+    manifest_fields,
+    manifest_models,
+)
+from usecaseapi.manifest_domain.shared.helpers import (
     error_extends,
     module_from_python_file,
     required_int,

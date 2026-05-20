@@ -5,7 +5,7 @@ from __future__ import annotations
 from importlib import import_module
 
 _EXPORTS = {
-    "._swagger.app": (
+    ".swagger_preview.app": (
         "create_swagger_app",
         "domain_error_envelope",
         "is_port_available",
@@ -23,7 +23,7 @@ _EXPORTS = {
         "select_available_port",
         "serve_swagger_preview",
     ),
-    "._swagger.discovery": (
+    ".swagger_preview.discovery": (
         "API_EXPORT_NAMES",
         "AUTO_DISCOVERY_EXCLUDED_DIRS",
         "FACTORY_EXPORT_NAMES",
@@ -41,7 +41,7 @@ _EXPORTS = {
         "project_import_roots",
         "should_skip_auto_discovery_path",
     ),
-    "._swagger.imports": (
+    ".swagger_preview.imports": (
         "callable_accepts_no_required_arguments",
         "import_preview_file",
         "import_preview_module",

@@ -1,0 +1,1 @@
+"""Semantic Manifest catalog implementation."""
