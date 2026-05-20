@@ -2858,3 +2858,619 @@ def test_manifest_v2_schema_and_helper_edge_branches() -> None:
         )
         == "example.contracts.run"
     )
+
+
+def test_manifest_v2_openapi_profile_remaining_error_branches() -> None:
+    """OpenAPI profile validation rejects remaining malformed generated-profile shapes."""
+    api = UseCaseAPI[None]()
+    api.bind(EXAMPLE, lambda caller: ExampleImpl())
+    manifest = manifest_from_api(api, project="demo")
+
+    def operation_of(candidate: dict[str, Any]) -> dict[str, Any]:
+        path_item = next(iter(candidate["paths"].values()))
+        return cast(dict[str, Any], path_item["post"])
+
+    def assert_invalid(mutate: Callable[[dict[str, Any]], None], match: str) -> None:
+        candidate = deepcopy(manifest)
+        mutate(candidate)
+        with pytest.raises(ManifestError, match=match):
+            validate_manifest(candidate)
+
+    assert_invalid(lambda candidate: candidate.__setitem__("unexpected", True), "unsupported keys")
+    assert_invalid(lambda candidate: candidate.__setitem__("kind", "other"), "manifest kind")
+    assert_invalid(lambda candidate: candidate.__setitem__("servers", []), "manifest.servers")
+    assert_invalid(lambda candidate: candidate.__setitem__("tags", {}), "manifest.tags")
+    assert_invalid(lambda candidate: candidate["tags"].append("bad"), "tags\\[1\\]")
+    assert_invalid(lambda candidate: candidate["tags"][0].__setitem__("x", True), "tags\\[0\\]")
+    assert_invalid(lambda candidate: candidate["tags"][0].__setitem__("name", ""), "tags\\[0\\]")
+    assert_invalid(
+        lambda candidate: candidate["components"].__setitem__("responses", []),
+        "components.responses",
+    )
+    assert_invalid(
+        lambda candidate: candidate["x-usecaseapi"].__setitem__("unexpected", True),
+        "x-usecaseapi has unsupported keys",
+    )
+    assert_invalid(
+        lambda candidate: candidate["x-usecaseapi"].__setitem__("defaults", {}),
+        "x-usecaseapi.defaults",
+    )
+    assert_invalid(
+        lambda candidate: candidate["x-usecaseapi"].__setitem__("protocols", {}),
+        "x-usecaseapi.protocols",
+    )
+    assert_invalid(
+        lambda candidate: candidate["x-usecaseapi"]["runtimes"].__setitem__("js", {}),
+        "runtimes must contain only python",
+    )
+    assert_invalid(
+        lambda candidate: candidate["x-usecaseapi"]["runtimes"]["python"].__setitem__(
+            "unexpected", True
+        ),
+        "runtimes.python has unsupported keys",
+    )
+    assert_invalid(
+        lambda candidate: candidate["x-usecaseapi"]["runtimes"]["python"].__setitem__(
+            "language", "ruby"
+        ),
+        "language",
+    )
+    assert_invalid(
+        lambda candidate: candidate["x-usecaseapi"]["runtimes"]["python"].__setitem__(
+            "version", ">=3.11"
+        ),
+        "version",
+    )
+    assert_invalid(
+        lambda candidate: candidate["x-usecaseapi"]["runtimes"]["python"].__setitem__(
+            "roots", {"contracts": "src"}
+        ),
+        "roots must define",
+    )
+    assert_invalid(
+        lambda candidate: candidate["x-usecaseapi"]["runtimes"]["python"]["roots"].__setitem__(
+            "contracts", ""
+        ),
+        "roots.contracts",
+    )
+    assert_invalid(
+        lambda candidate: candidate["x-usecaseapi"]["runtimes"]["python"].__setitem__(
+            "package", ""
+        ),
+        "package",
+    )
+    assert_invalid(
+        lambda candidate: candidate["x-usecaseapi"]["components"].__setitem__("unexpected", {}),
+        "x-usecaseapi.components",
+    )
+
+    invalid_extension = deepcopy(operation_of(manifest)["x-usecaseapi"])
+    invalid_extension["kind"] = "query"
+    with pytest.raises(ManifestError, match="kind"):
+        manifest_module.validate_openapi_operation_extension(
+            invalid_extension,
+            operation=operation_of(manifest),
+        )
+    assert_invalid(
+        lambda candidate: operation_of(candidate)["x-usecaseapi"]["context"].__setitem__(
+            "unexpected", True
+        ),
+        "context has unsupported keys",
+    )
+    assert_invalid(
+        lambda candidate: operation_of(candidate)["x-usecaseapi"]["context"].__setitem__(
+            "source", "request"
+        ),
+        "context.source",
+    )
+    assert_invalid(
+        lambda candidate: operation_of(candidate)["x-usecaseapi"]["lifecycle"].__setitem__(
+            "unexpected", True
+        ),
+        "lifecycle has unsupported keys",
+    )
+    assert_invalid(
+        lambda candidate: operation_of(candidate)["x-usecaseapi"]["lifecycle"].__setitem__(
+            "stability", "beta"
+        ),
+        "lifecycle.stability",
+    )
+    assert_invalid(
+        lambda candidate: operation_of(candidate)["x-usecaseapi"]["lifecycle"].__setitem__(
+            "deprecated", "false"
+        ),
+        "lifecycle.deprecated",
+    )
+    assert_invalid(
+        lambda candidate: operation_of(candidate)["x-usecaseapi"]["lifecycle"].__setitem__(
+            "supersededBy", 1
+        ),
+        "supersededBy",
+    )
+    with pytest.raises(ManifestError, match="uses must be a mapping"):
+        manifest_module.validate_openapi_operation_uses({"uses": []})
+    with pytest.raises(ManifestError, match="uses entries"):
+        manifest_module.validate_openapi_operation_uses({"uses": {1: {"key": "a@v1"}}})
+    with pytest.raises(ManifestError, match="path item"):
+        manifest_module.validate_openapi_path_item("/bad", [])
+    assert_invalid(
+        lambda candidate: operation_of(candidate)["requestBody"].__setitem__("description", "x"),
+        "requestBody",
+    )
+    assert_invalid(
+        lambda candidate: operation_of(candidate)["responses"]["200"].__setitem__("headers", {}),
+        "responses.200",
+    )
+    assert_invalid(
+        lambda candidate: operation_of(candidate)["responses"]["default"].__setitem__(
+            "description", "x"
+        ),
+        "responses.default",
+    )
+    assert_invalid(
+        lambda candidate: operation_of(candidate)["requestBody"]["content"].__setitem__(
+            "text/plain", {}
+        ),
+        "application/json",
+    )
+    assert_invalid(
+        lambda candidate: operation_of(candidate)["requestBody"]["content"][
+            "application/json"
+        ].__setitem__("example", {}),
+        "application/json must contain only schema",
+    )
+    assert_invalid(
+        lambda candidate: operation_of(candidate)["x-usecaseapi"]["input"].__setitem__(
+            "schema", "#/components/schemas/Wrong"
+        ),
+        "input.schema",
+    )
+    assert_invalid(
+        lambda candidate: operation_of(candidate)["x-usecaseapi"]["output"].__setitem__(
+            "schema", "#/components/schemas/Wrong"
+        ),
+        "output.schema",
+    )
+    assert_invalid(
+        lambda candidate: operation_of(candidate)["requestBody"]["content"]["application/json"][
+            "schema"
+        ].__setitem__("$ref", "#/components/schemas/Wrong"),
+        "requestBody schema",
+    )
+    assert_invalid(
+        lambda candidate: operation_of(candidate)["responses"]["200"]["content"][
+            "application/json"
+        ]["schema"].__setitem__("$ref", "#/components/schemas/Wrong"),
+        "200 response schema",
+    )
+    assert_invalid(
+        lambda candidate: operation_of(candidate)["responses"]["default"].__setitem__(
+            "$ref", "#/components/responses/Wrong"
+        ),
+        "default response",
+    )
+
+    response_ref = operation_of(manifest)["responses"]["default"]["$ref"]
+    assert_invalid(
+        lambda candidate: candidate["components"]["responses"][
+            response_ref.removeprefix("#/components/responses/")
+        ]["content"]["application/json"]["schema"].__setitem__("oneOf", {}),
+        "oneOf",
+    )
+    assert_invalid(
+        lambda candidate: candidate["components"]["responses"][
+            response_ref.removeprefix("#/components/responses/")
+        ]["content"]["application/json"]["schema"].__setitem__("oneOf", ["bad"]),
+        "oneOf entries",
+    )
+
+
+def test_manifest_v2_error_schema_remaining_error_branches() -> None:
+    """Error metadata and envelope validation cover remaining drift branches."""
+    api = UseCaseAPI[None]()
+    api.bind(EXAMPLE, lambda caller: ExampleImpl())
+    manifest = manifest_from_api(api, project="demo")
+    identity = {"name": "example.run", "version": 1}
+    error_key = manifest_module.component_name(identity, "ExampleError")
+    payload_ref = manifest_module.component_ref_path(
+        manifest_module.component_name(identity, "ExampleErrorPayload")
+    )
+    envelope_ref = manifest_module.component_ref_path(
+        manifest_module.component_name(identity, "ExampleErrorEnvelope")
+    )
+    envelope_key = envelope_ref.removeprefix("#/components/schemas/")
+
+    with pytest.raises(ManifestError, match="unsupported response reference"):
+        manifest_module.openapi_error_response_envelope_refs(manifest, "#/bad/Response")
+    assert (
+        manifest_module.errors_from_components(
+            {
+                **manifest,
+                "x-usecaseapi": {
+                    **manifest["x-usecaseapi"],
+                    "components": {"errors": {1: "bad"}},
+                },
+            },
+            name="example.run",
+            version=1,
+        )
+        == []
+    )
+
+    def assert_invalid(mutate: Callable[[dict[str, Any]], None], match: str) -> None:
+        candidate = deepcopy(manifest)
+        mutate(candidate)
+        with pytest.raises(ManifestError, match=match):
+            validate_manifest(candidate)
+
+    assert_invalid(
+        lambda candidate: candidate["x-usecaseapi"]["components"]["errors"][error_key].__setitem__(
+            "payloadSchema", "#/components/schemas/Wrong"
+        ),
+        "payloadSchema",
+    )
+    assert_invalid(
+        lambda candidate: candidate["x-usecaseapi"]["components"]["errors"][error_key].__setitem__(
+            "envelopeSchema", "#/components/schemas/Wrong"
+        ),
+        "envelopeSchema",
+    )
+    assert_invalid(
+        lambda candidate: candidate["components"]["schemas"][envelope_key].__setitem__(
+            "additionalProperties", True
+        ),
+        "forbid extra fields",
+    )
+    assert_invalid(
+        lambda candidate: candidate["components"]["schemas"][envelope_key].__setitem__(
+            "required", ["code"]
+        ),
+        "required fields",
+    )
+    assert_invalid(
+        lambda candidate: candidate["components"]["schemas"][envelope_key].__setitem__(
+            "properties", {"code": {"type": "string"}}
+        ),
+        "properties",
+    )
+    assert_invalid(
+        lambda candidate: candidate["components"]["schemas"][envelope_key]["properties"][
+            "payload"
+        ].__setitem__("$ref", "#/components/schemas/Wrong"),
+        "payload must",
+    )
+    assert_invalid(
+        lambda candidate: candidate["components"]["schemas"][envelope_key]["properties"][
+            "message"
+        ].__setitem__("type", "integer"),
+        "message",
+    )
+    assert_invalid(
+        lambda candidate: candidate["components"]["schemas"][envelope_key]["properties"][
+            "code"
+        ].__setitem__("type", "integer"),
+        "code must be string",
+    )
+    assert (
+        manifest_module.openapi_error_envelope_refs(
+            {
+                **manifest,
+                "x-usecaseapi": {
+                    **manifest["x-usecaseapi"],
+                    "components": {},
+                },
+            },
+            identity,
+            [],
+        )
+        == []
+    )
+    with pytest.raises(ManifestError, match="payloadSchema"):
+        manifest_module.openapi_error_envelope_refs(
+            {
+                **manifest,
+                "x-usecaseapi": {
+                    **manifest["x-usecaseapi"],
+                    "components": {
+                        "errors": {
+                            error_key: {
+                                **manifest["x-usecaseapi"]["components"]["errors"][error_key],
+                                "payloadSchema": payload_ref + "Wrong",
+                            }
+                        }
+                    },
+                },
+            },
+            identity,
+            ["ExampleError"],
+        )
+
+
+def test_manifest_openapi_generation_duplicate_guards(monkeypatch: pytest.MonkeyPatch) -> None:
+    """OpenAPI conversion rejects duplicate generated paths, operations, schemas, and responses."""
+    base = minimal_manifest()["usecases"][0]
+
+    duplicate_path = deepcopy(minimal_manifest())
+    duplicate_path["usecases"].append(deepcopy(base))
+    with monkeypatch.context() as scoped:
+        scoped.setattr(manifest_module, "openapi_components", lambda usecases: {"schemas": {}})
+        with pytest.raises(ManifestError, match="duplicate OpenAPI path"):
+            manifest_module.openapi_manifest_from_semantic(duplicate_path)
+
+        duplicate_operation = deepcopy(minimal_manifest())
+        second = deepcopy(base)
+        second["name"] = "example_run"
+        duplicate_operation["usecases"].append(second)
+        with pytest.raises(ManifestError, match="duplicate OpenAPI operationId"):
+            manifest_module.openapi_manifest_from_semantic(duplicate_operation)
+
+    duplicate_model = deepcopy(base)
+    duplicate_model["models"].append({"name": "Input", "fields": []})
+    with pytest.raises(ManifestError, match="duplicate OpenAPI schema component"):
+        manifest_module.openapi_components([duplicate_model])
+
+    duplicate_payload = deepcopy(base)
+    duplicate_payload["models"].append({"name": "ExampleErrorPayload", "fields": []})
+    duplicate_payload["errors"] = [
+        {"name": "ExampleError", "base": "UseCaseError", "code": "example.run", "fields": []}
+    ]
+    with pytest.raises(ManifestError, match="duplicate OpenAPI schema component"):
+        manifest_module.openapi_components([duplicate_payload])
+
+    duplicate_envelope = deepcopy(base)
+    duplicate_envelope["models"].append({"name": "ExampleErrorEnvelope", "fields": []})
+    duplicate_envelope["errors"] = [
+        {"name": "ExampleError", "base": "UseCaseError", "code": "example.run", "fields": []}
+    ]
+    with pytest.raises(ManifestError, match="duplicate OpenAPI schema component"):
+        manifest_module.openapi_components([duplicate_envelope])
+
+    response_one = {
+        "name": "a.b",
+        "version": 1,
+        "input": "Input",
+        "output": "Output",
+        "models": [{"name": "Input", "fields": []}, {"name": "Output", "fields": []}],
+        "errors": [{"name": "FirstError", "base": "UseCaseError", "code": "first", "fields": []}],
+        "raises": ["FirstError"],
+    }
+    response_two = {
+        "name": "a_b",
+        "version": 1,
+        "input": "OtherInput",
+        "output": "OtherOutput",
+        "models": [{"name": "OtherInput", "fields": []}, {"name": "OtherOutput", "fields": []}],
+        "errors": [{"name": "SecondError", "base": "UseCaseError", "code": "second", "fields": []}],
+        "raises": ["SecondError"],
+    }
+    with pytest.raises(ManifestError, match="duplicate OpenAPI response component"):
+        manifest_module.openapi_components([response_one, response_two])
+
+    duplicate_error = deepcopy(base)
+    duplicate_error["errors"] = [
+        {"name": "ExampleError", "base": "UseCaseError", "code": "example.run", "fields": []}
+    ]
+    with pytest.raises(ManifestError, match="duplicate OpenAPI error component"):
+        manifest_module.openapi_error_components([duplicate_error, duplicate_error])
+
+
+def test_manifest_schema_conversion_remaining_error_branches() -> None:
+    """Schema-to-type conversion rejects unsupported JSON Schema edge cases."""
+    with pytest.raises(ManifestError, match="unsupported string schema format"):
+        manifest_module.schema_to_type_expr({"type": "string", "format": "email"})
+    with pytest.raises(ManifestError, match="contentEncoding"):
+        manifest_module.schema_to_type_expr({"type": "string", "contentEncoding": "gzip"})
+    with pytest.raises(ManifestError, match="cannot combine"):
+        manifest_module.schema_to_type_expr(
+            {"type": "string", "format": "uuid", "contentEncoding": "base64"}
+        )
+    assert manifest_module.schema_to_type_expr({"type": "string", "contentEncoding": "base64"}) == (
+        "bytes"
+    )
+    with pytest.raises(ManifestError, match="prefixItems"):
+        manifest_module.schema_to_type_expr({"type": "array", "prefixItems": []})
+    with pytest.raises(ManifestError, match="minItems/maxItems"):
+        manifest_module.schema_to_type_expr(
+            {"type": "array", "prefixItems": [{"type": "string"}], "minItems": 0, "maxItems": 1}
+        )
+    with pytest.raises(ManifestError, match="uniqueItems"):
+        manifest_module.schema_to_type_expr(
+            {"type": "array", "items": {"type": "string"}, "uniqueItems": False}
+        )
+    with pytest.raises(ManifestError, match="enum schema must not be empty"):
+        manifest_module.schema_to_type_expr({"enum": []})
+    with pytest.raises(ManifestError, match="supported Literal"):
+        manifest_module.schema_to_type_expr({"enum": [[]]})
+    with pytest.raises(ManifestError, match="anyOf"):
+        manifest_module.schema_to_type_expr({"anyOf": []})
+    with pytest.raises(ManifestError, match="schema.type"):
+        manifest_module.schema_to_type_expr({"type": 1})
+    with pytest.raises(ManifestError, match="unsupported schema type"):
+        manifest_module.schema_to_type_expr({"type": "weird"})
+    with pytest.raises(ManifestError, match="prefixItems entries"):
+        manifest_module.schema_to_type_expr(
+            {"type": "array", "prefixItems": ["bad"], "minItems": 1, "maxItems": 1}
+        )
+    with pytest.raises(ManifestError, match="items schema"):
+        manifest_module.schema_to_type_expr({"type": "array"})
+    with pytest.raises(ManifestError, match="additionalProperties"):
+        manifest_module.schema_to_type_expr({"type": "object"})
+    with pytest.raises(ManifestError, match="unsupported schema reference"):
+        manifest_module.class_name_from_component_ref("#/components/responses/Error")
+    with pytest.raises(ManifestError, match="component prefix"):
+        manifest_module.class_name_from_component_ref(
+            "#/components/schemas/OtherName",
+            component_name_prefix="Expected",
+        )
+    with pytest.raises(ManifestError, match="missing a class name"):
+        manifest_module.class_name_from_component_ref(
+            "#/components/schemas/Expected",
+            component_name_prefix="Expected",
+        )
+    with pytest.raises(ManifestError, match="invalid class name"):
+        manifest_module.class_name_from_component_ref(
+            "#/components/schemas/Expectedbad-name",
+            component_name_prefix="Expected",
+        )
+    api = UseCaseAPI[None]()
+    api.bind(EXAMPLE, lambda caller: ExampleImpl())
+    model_manifest = manifest_from_api(api)
+    assert (
+        manifest_module.models_from_components(
+            {
+                **model_manifest,
+                "components": {"schemas": {"Ignored": "bad"}},
+            },
+            name="example.run",
+            version=1,
+        )
+        == []
+    )
+    schemas = model_manifest["components"]["schemas"]
+    input_schema = schemas.pop("ExampleRunV1Input")
+    schemas["WrongInput"] = input_schema
+    with pytest.raises(ManifestError, match="schema component"):
+        manifest_module.models_from_components(model_manifest, name="example.run", version=1)
+    with pytest.raises(ManifestError, match="property names"):
+        manifest_module.validate_openapi_object_model_schema(
+            {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {1: {"type": "string"}},
+                "required": [],
+            },
+            name="Bad",
+        )
+    with pytest.raises(ManifestError, match="required must be"):
+        manifest_module.validate_openapi_object_model_schema(
+            {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {"value": {"type": "string"}},
+                "required": [1],
+            },
+            name="Bad",
+        )
+
+
+def test_manifest_type_reference_and_path_remaining_error_branches(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Type reference, file path, and reachability helpers cover remaining guard branches."""
+    with pytest.raises(ManifestError, match="generic type requires type arguments"):
+        manifest_module.validate_type_expr_references(
+            "list",
+            model_names={"Input"},
+            context="model Input",
+        )
+    assert manifest_module.type_expr_allows_none("Literal[None]") is True
+    assert manifest_module.type_expr_allows_none("list[None]") is False
+    with pytest.raises(ManifestError, match="dict' requires a str key"):
+        manifest_module.validate_type_expr("dict[int, str]")
+    with pytest.raises(ManifestError, match="tuple' requires at least one argument"):
+        manifest_module.validate_type_expr("tuple[()]")
+    with pytest.raises(ManifestError, match="Literal values require"):
+        manifest_module.validate_type_expr("Literal[()]")
+    assert manifest_module.top_level_type_ast_allows_none(ast.parse("1 + 2", mode="eval").body) is (
+        False
+    )
+
+    class AbsolutePath:
+        suffix = ".py"
+
+        def __init__(self, value: str) -> None:
+            self.value = value
+
+        def is_absolute(self) -> bool:
+            return True
+
+    monkeypatch.setattr(manifest_module, "Path", AbsolutePath)
+    with pytest.raises(ManifestError, match="must be a relative path"):
+        manifest_module.validate_manifest_file_path("absolute.py", context="path")
+    monkeypatch.setattr(manifest_module, "Path", Path)
+
+    with pytest.raises(ManifestError, match="must end with .py"):
+        manifest_module.validate_manifest_file_path("generated.txt", context="path")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    root = tmp_path / "root"
+    root.mkdir()
+    (root / "linked").symlink_to(outside, target_is_directory=True)
+    with pytest.raises(ManifestError, match="scaffold root"):
+        manifest_module.safe_manifest_file_under_root(root, "linked/generated.py", context="path")
+    assert manifest_module.reachable_model_names(
+        {"input": "Input", "output": "Missing", "errors": []},
+        {"Input": []},
+    ) == {"Input"}
+
+
+def test_manifest_contract_check_base_and_normalization_remaining_branches(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Contract check base loading and normalization cover malformed historical inputs."""
+    summary = tmp_path / "summary.md"
+    invalid_base = tmp_path / "base.yaml"
+    invalid_base.write_text("- not\n- mapping\n")
+    monkeypatch.chdir("examples/basic")
+    monkeypatch.syspath_prepend("src")
+
+    exit_code = main(
+        [
+            "manifest",
+            "ci",
+            "--target",
+            "composition:usecases",
+            "--manifest",
+            "usecaseapi.yaml",
+            "--base-manifest",
+            str(invalid_base),
+            "--summary",
+            str(summary),
+        ]
+    )
+
+    assert exit_code == 1
+    assert "manifest must be a YAML mapping" in summary.read_text()
+    legacy = {"kind": manifest_module.LEGACY_MANIFEST_KIND}
+    assert manifest_module.normalize_contract_check_base_manifest(legacy) is legacy
+    assert manifest_module.normalize_contract_check_base_manifest({"openapi": "3.1.0"}) == {
+        "openapi": "3.1.0"
+    }
+
+
+def test_manifest_model_validation_remaining_branches(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Model and field representability guards cover remaining unsupported metadata."""
+
+    class PlainDecoratorsModel(Model):
+        value: str
+
+    monkeypatch.setattr(PlainDecoratorsModel, "__pydantic_decorators__", None)
+    manifest_module.validate_representable_model(PlainDecoratorsModel)
+
+    class FactoryModel(Model):
+        value: str = Field(default_factory=str)
+
+    class JsonExtraModel(Model):
+        value: str = Field(json_schema_extra={"x": True})
+
+    class TitledModel(Model):
+        value: str = Field(title="Value")
+
+    class ExampledModel(Model):
+        value: str = Field(examples=["x"])
+
+    class DeprecatedModel(Model):
+        value: str = Field(deprecated=True)
+
+    field_cases: list[tuple[type[Any], str]] = [
+        (FactoryModel, "default_factory"),
+        (JsonExtraModel, "JSON Schema extras"),
+        (TitledModel, "schema title"),
+        (ExampledModel, "schema examples"),
+        (DeprecatedModel, "deprecation metadata"),
+    ]
+    for model_type, match in field_cases:
+        with pytest.raises(ManifestError, match=match):
+            manifest_module.validate_representable_field("value", model_type.model_fields["value"])

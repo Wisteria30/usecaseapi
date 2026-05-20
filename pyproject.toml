@@ -118,6 +118,10 @@ markers = [
 [tool.coverage.run]
 source = ["usecaseapi"]
 
+[tool.coverage.report]
+fail_under = 100
+show_missing = true
+
 [tool.mypy]
 python_version = "3.13"
 mypy_path = ["src", "examples/basic/src"]
