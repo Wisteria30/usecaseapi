@@ -2123,6 +2123,53 @@ def test_manifest_ci_writes_reports_for_valid_example(
     assert report["validation"] == {"manifest": "passed", "sync": "passed"}
 
 
+def test_manifest_ci_normalizes_historical_base_empty_object_schemas(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Historical base OpenAPI manifests remain comparable without weakening head validation."""
+    base = deepcopy(load_manifest("examples/basic/usecaseapi.yaml"))
+    schemas = cast(dict[str, object], cast(dict[str, object], base["components"])["schemas"])
+    error_payload = cast(dict[str, object], schemas["CommercePlaceOrderV1PlaceOrderErrorPayload"])
+    del error_payload["properties"]
+    with pytest.raises(ManifestError, match="properties must be a mapping"):
+        validate_manifest(base)
+
+    base_path = tmp_path / "base.yaml"
+    summary = tmp_path / "contract-check.md"
+    json_report = tmp_path / "contract-check.json"
+    base_path.write_text(yaml.safe_dump(base, sort_keys=False))
+    monkeypatch.chdir("examples/basic")
+    monkeypatch.syspath_prepend("src")
+
+    exit_code = main(
+        [
+            "manifest",
+            "ci",
+            "--target",
+            "composition:usecases",
+            "--manifest",
+            "usecaseapi.yaml",
+            "--base-manifest",
+            str(base_path),
+            "--summary",
+            str(summary),
+            "--json",
+            str(json_report),
+        ]
+    )
+
+    assert exit_code == 0
+    stdout = capsys.readouterr().out
+    markdown = summary.read_text()
+    report = json.loads(json_report.read_text())
+    assert "base manifest validation failed" not in stdout
+    assert "Status: Passed" in markdown
+    assert report["status"] == "passed"
+    assert report["guard"] == {"failed": False, "removed": [], "changed": [], "added": []}
+
+
 def manifest_ci_changed_base_case(
     tmp_path: Path,
 ) -> tuple[list[str], tuple[str, ...], tuple[tuple[Path, str], ...]]:

@@ -9,6 +9,7 @@ import sys
 import types
 
 from collections.abc import Mapping, Sequence
+from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, ClassVar, Literal, Union, cast, get_args, get_origin, get_type_hints
@@ -2534,7 +2535,11 @@ def run_contract_check(
             errors.append(f"base manifest not found: {base_manifest_path}")
         else:
             try:
-                base_manifest = load_manifest(base_manifest_path)
+                base_payload = yaml.safe_load(base_manifest_path.read_text())
+                if not isinstance(base_payload, dict):
+                    raise ManifestError("manifest must be a YAML mapping")
+                base_manifest: Mapping[str, Any] = dict(base_payload)
+                base_manifest = normalize_contract_check_base_manifest(base_manifest)
                 guard = guard_manifests(base_manifest, head_manifest)
             except (ManifestError, yaml.YAMLError) as exc:
                 errors.append(f"base manifest validation failed: {exc}")
@@ -2547,6 +2552,27 @@ def run_contract_check(
         guard=guard,
         errors=tuple(errors),
     )
+
+
+def normalize_contract_check_base_manifest(manifest: Mapping[str, Any]) -> Mapping[str, Any]:
+    """Normalize historical generated base manifests for CI-only contract comparison."""
+    if manifest.get("openapi") != OPENAPI_VERSION:
+        return manifest
+    normalized = deepcopy(manifest)
+    components = normalized.get("components")
+    schemas = components.get("schemas") if isinstance(components, Mapping) else None
+    if not isinstance(schemas, dict):
+        return normalized
+    for schema in schemas.values():
+        if (
+            isinstance(schema, dict)
+            and schema.get("type") == "object"
+            and schema.get("additionalProperties") is False
+            and schema.get("required") == []
+            and "properties" not in schema
+        ):
+            schema["properties"] = {}
+    return normalized
 
 
 def contract_check_sync_errors(diff: ManifestDiff) -> tuple[str, ...]:
