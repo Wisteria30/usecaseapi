@@ -1,6 +1,4 @@
 """Python scaffold rendering helpers for Manifest metadata."""
-# ruff: noqa: F403,F405
-# mypy: ignore-errors
 
 from __future__ import annotations
 
@@ -9,10 +7,13 @@ import ast
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from .accessors import *
-from .common import *
-from .helpers import *
-from .semantic_validation import *
+from .accessors import manifest_fields
+from .common import ManifestError
+from .helpers import (
+    required_string,
+    string_or_default,
+)
+from .semantic_validation import type_expr_allows_none
 
 
 def render_model_class(model: Mapping[str, Any]) -> list[str]:
@@ -224,6 +225,3 @@ def tuple_expr(names: Sequence[str]) -> str:
     if not names:
         return "()"
     return "(" + ", ".join(names) + ",)"
-
-
-__all__ = [name for name in globals() if not name.startswith("__")]

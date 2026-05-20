@@ -1,6 +1,4 @@
 """Manifest implementation package."""
-# ruff: noqa: F403,F405
-# mypy: ignore-errors
 
 from __future__ import annotations
 
@@ -8,9 +6,51 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from .common import *
-from .openapi import *
-from .validation import *
+from .accessors import (
+    manifest_errors,
+    manifest_fields,
+    manifest_models,
+    usecase_items_from_semantic,
+)
+from .common import (
+    OPENAPI_VERSION,
+    ManifestError,
+    ManifestScaffoldResult,
+)
+from .helpers import (
+    default_contract_file,
+    default_implementation_file,
+    default_manifest_test_file,
+    ensure_init_files,
+    module_from_python_file,
+    required_int,
+    required_mapping,
+    required_string,
+    string_list,
+    string_or_default,
+    write_generated_file,
+)
+from .openapi_usecase_projection import semantic_from_openapi_manifest
+from .rendering import (
+    collect_type_exprs,
+    py_string_literal,
+    render_contract_binding,
+    render_error_class,
+    render_model_class,
+    stdlib_import_lines,
+    typing_imports,
+    usecaseapi_imports,
+)
+from .semantic import (
+    node_id,
+    usecase_key,
+)
+from .semantic_validation import (
+    validate_contract_file_module,
+    validate_manifest_file_path,
+    validate_usecase_manifest,
+)
+from .validation import validate_manifest
 
 
 def scaffold_from_manifest(
@@ -275,11 +315,16 @@ def test_{test_name}_usecase_matches_contract() -> None:
 def render_manifest_markdown(manifest: Mapping[str, Any]) -> str:
     """Render human-readable Markdown docs from a Manifest."""
     validate_manifest(manifest)
+    semantic = (
+        semantic_from_openapi_manifest(manifest)
+        if manifest.get("openapi") == OPENAPI_VERSION
+        else manifest
+    )
     lines = ["# UseCaseAPI Manifest", ""]
-    metadata = manifest.get("metadata")
+    metadata = semantic.get("metadata")
     if isinstance(metadata, Mapping) and isinstance(metadata.get("name"), str):
         lines.extend([f"Project: `{metadata['name']}`", ""])
-    for item in usecase_items(manifest):
+    for item in usecase_items_from_semantic(semantic):
         key = usecase_key(item)
         lines.extend([f"## {required_string(item, 'name')} v{required_int(item, 'version')}", ""])
         description = item.get("description")
@@ -397,8 +442,13 @@ def render_markdown_errors(item: Mapping[str, Any]) -> list[str]:
 def render_manifest_graph(manifest: Mapping[str, Any]) -> str:
     """Render a Mermaid graph from a Manifest."""
     validate_manifest(manifest)
+    semantic = (
+        semantic_from_openapi_manifest(manifest)
+        if manifest.get("openapi") == OPENAPI_VERSION
+        else manifest
+    )
     lines = ["graph TD"]
-    for item in usecase_items(manifest):
+    for item in usecase_items_from_semantic(semantic):
         key = usecase_key(item)
         current_node_id = node_id(key)
         lines.append(f'  {current_node_id}["{key}"]')

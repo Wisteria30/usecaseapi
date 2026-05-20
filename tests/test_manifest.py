@@ -2657,10 +2657,10 @@ def test_manifest_named_helpers_cover_edge_branches(
         pass
 
     assert manifest_module.source_file(1) is None
-    monkeypatch.setattr("usecaseapi._manifest.common.inspect.getsourcefile", lambda value: None)
+    monkeypatch.setattr("usecaseapi._manifest.helpers.inspect.getsourcefile", lambda value: None)
     assert manifest_module.source_file(Args) is None
     monkeypatch.setattr(
-        "usecaseapi._manifest.common.inspect.getsourcefile",
+        "usecaseapi._manifest.helpers.inspect.getsourcefile",
         lambda value: str(tmp_path / "outside.py"),
     )
     assert manifest_module.source_file(Args) == (tmp_path / "outside.py").as_posix()
@@ -3395,12 +3395,12 @@ def test_manifest_type_reference_and_path_remaining_error_branches(
         def is_absolute(self) -> bool:
             return True
 
-    import usecaseapi._manifest.common as common_module
+    import usecaseapi._manifest.semantic_validation as semantic_validation_module
 
-    monkeypatch.setattr(common_module, "Path", AbsolutePath)
+    monkeypatch.setattr(semantic_validation_module, "Path", AbsolutePath)
     with pytest.raises(ManifestError, match="must be a relative path"):
         manifest_module.validate_manifest_file_path("absolute.py", context="path")
-    monkeypatch.setattr(common_module, "Path", Path)
+    monkeypatch.setattr(semantic_validation_module, "Path", Path)
 
     with pytest.raises(ManifestError, match="must end with .py"):
         manifest_module.validate_manifest_file_path("generated.txt", context="path")

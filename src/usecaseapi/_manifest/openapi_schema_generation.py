@@ -1,16 +1,25 @@
 """JSON Schema generation for UseCaseAPI OpenAPI components."""
-# ruff: noqa: F403,F405
-# mypy: ignore-errors
 
 from __future__ import annotations
 
 import ast
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any
 
-from .common import *
-from .openapi_naming import *
+from .accessors import manifest_fields
+from .helpers import (
+    required_int,
+    required_string,
+    subscript_args,
+    without_none,
+)
+from .openapi_naming import (
+    component_name,
+    component_ref,
+    schema_kind,
+)
+from .semantic_validation import validate_type_expr
 
 
 def model_schema(usecase: Mapping[str, Any], model: Mapping[str, Any]) -> dict[str, Any]:
@@ -173,13 +182,6 @@ def literal_values(node: ast.AST) -> list[Any]:
     return [item.value for item in subscript_args(node) if isinstance(item, ast.Constant)]
 
 
-def subscript_args(node: ast.AST) -> list[ast.AST]:
-    """Return subscript arguments as a list."""
-    if isinstance(node, ast.Tuple):
-        return list(node.elts)
-    return [node]
-
-
 def error_envelope_schema(error: Mapping[str, Any], payload_name: str) -> dict[str, Any]:
     """Build a domain error envelope schema."""
     error_name = required_string(error, "name")
@@ -198,6 +200,3 @@ def error_envelope_schema(error: Mapping[str, Any], payload_name: str) -> dict[s
         },
         "x-usecaseapi": {"kind": "errorEnvelope", "error": error_name},
     }
-
-
-__all__ = [name for name in globals() if not name.startswith("__")]

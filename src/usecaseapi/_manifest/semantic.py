@@ -1,6 +1,4 @@
 """Semantic Manifest comparison and project metadata helpers."""
-# ruff: noqa: F403,F405
-# mypy: ignore-errors
 
 from __future__ import annotations
 
@@ -9,9 +7,22 @@ import ast
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from .accessors import *
-from .common import *
-from .helpers import *
+from .accessors import (
+    manifest_errors,
+    manifest_fields,
+    manifest_models,
+    usecase_items,
+)
+from .common import (
+    LEGACY_MANIFEST_KIND,
+    OPENAPI_VERSION,
+)
+from .helpers import (
+    required_int,
+    required_string,
+    string_list,
+    string_or_default,
+)
 
 
 def usecase_key(usecase: Mapping[str, Any]) -> str:
@@ -20,11 +31,6 @@ def usecase_key(usecase: Mapping[str, Any]) -> str:
         usecase.get("key"),
         f"{required_string(usecase, 'name')}@v{required_int(usecase, 'version')}",
     )
-
-
-def pascal_identifier(value: str) -> str:
-    """Return a PascalCase identifier fragment from snake_case or dotted names."""
-    return "".join(part.capitalize() for part in value.split("_"))
 
 
 def node_id(key: str) -> str:
@@ -172,7 +178,7 @@ def project_name_from_semantic(manifest: Mapping[str, Any]) -> str | None:
 def package_name(manifest: Mapping[str, Any]) -> str | None:
     """Read Manifest package name when present."""
     if manifest.get("openapi") == OPENAPI_VERSION:
-        from .validation import semantic_from_openapi_manifest
+        from .openapi_usecase_projection import semantic_from_openapi_manifest
 
         layout = semantic_from_openapi_manifest(manifest).get("layout")
     else:
@@ -181,6 +187,3 @@ def package_name(manifest: Mapping[str, Any]) -> str | None:
     if isinstance(package, str):
         return package
     return None
-
-
-__all__ = [name for name in globals() if not name.startswith("__")]

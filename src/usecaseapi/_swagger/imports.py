@@ -1,5 +1,4 @@
 """Swagger preview import and exported API loading."""
-# mypy: ignore-errors
 
 from __future__ import annotations
 
@@ -9,7 +8,7 @@ import importlib.util
 import inspect
 import sys
 
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from pathlib import Path
 from types import ModuleType
 from typing import Any
@@ -62,17 +61,13 @@ def split_preview_export(preview: str) -> tuple[str, str | None]:
 def import_preview_module_name(preview: str) -> ModuleType:
     """Import a preview module name with ordinary project import roots available."""
     roots = [str(path.resolve()) for path in project_import_roots(Path.cwd())]
-    added_roots = [root for root in roots if root not in sys.path]
-    sys.path[:0] = added_roots
     try:
-        return importlib.import_module(preview)
+        with temporary_sys_path_roots(roots):
+            return importlib.import_module(preview)
     except ModuleNotFoundError as exc:
         if exc.name == preview or (exc.name is not None and preview.startswith(exc.name + ".")):
             raise SwaggerPreviewError(f"preview module does not exist: {preview}") from exc
         raise
-    finally:
-        for root in reversed(added_roots):
-            sys.path.remove(root)
 
 
 def preview_api_from_module(
@@ -102,10 +97,18 @@ def preview_runtime_import_roots(module: ModuleType) -> Iterator[None]:
     module_file = getattr(module, "__file__", None)
     if module_file is not None:
         roots.insert(0, str(Path(module_file).resolve().parent))
+    with temporary_sys_path_roots(roots):
+        yield
+
+
+@contextlib.contextmanager
+def temporary_sys_path_roots(roots: Iterable[str]) -> Iterator[None]:
+    """Temporarily prepend unique import roots to sys.path."""
+    root_list = list(roots)
     added_roots = [
         root
-        for index, root in enumerate(roots)
-        if root not in sys.path and root not in roots[:index]
+        for index, root in enumerate(root_list)
+        if root not in sys.path and root not in root_list[:index]
     ]
     sys.path[:0] = added_roots
     try:
@@ -154,13 +157,7 @@ def import_preview_file(path: Path) -> ModuleType:
         str(resolved.parent),
         *(str(path.resolve()) for path in project_import_roots(Path.cwd())),
     ]
-    added_roots = [
-        root
-        for index, root in enumerate(roots)
-        if root not in sys.path and root not in roots[:index]
-    ]
-    sys.path[:0] = added_roots
-    try:
+    with temporary_sys_path_roots(roots):
         module = importlib.util.module_from_spec(spec)
         sys.modules[module_name] = module
         try:
@@ -168,10 +165,4 @@ def import_preview_file(path: Path) -> ModuleType:
         except Exception:
             sys.modules.pop(module_name, None)
             raise
-    finally:
-        for root in reversed(added_roots):
-            sys.path.remove(root)
     return module
-
-
-__all__ = [name for name in globals() if not name.startswith("__")]

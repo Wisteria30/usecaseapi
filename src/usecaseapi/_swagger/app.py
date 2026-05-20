@@ -1,5 +1,4 @@
 """FastAPI Swagger preview app and runtime loading."""
-# mypy: ignore-errors
 
 from __future__ import annotations
 
@@ -251,13 +250,15 @@ def make_usecase_endpoint(
     """Create one FastAPI endpoint function for a bound usecase."""
     from fastapi import Header, Request
 
+    context_resolver = build_context_resolver(create_context)
+
     async def endpoint(
         input: Any,
         request: Request,
         *,
         _x_usecaseapi_scenario: str | None = None,
     ) -> Any:
-        context = await resolve_context(create_context, request)
+        context = await context_resolver(request)
         return await api.caller(context).call(ref, input)
 
     endpoint.__name__ = operation_id
@@ -285,11 +286,66 @@ def make_usecase_endpoint(
     return endpoint
 
 
-async def resolve_context(create_context: Callable[..., Any] | None, request: Any) -> Any:
-    """Create the per-request context used by UseCaseAPI."""
+def build_context_resolver(
+    create_context: Callable[..., Any] | None,
+) -> Callable[[Any], Awaitable[Any]]:
+    """Build a request context resolver once per preview endpoint."""
     if create_context is None:
-        return None
+        return no_context
 
+    try:
+        mode = context_argument_mode(create_context)
+    except SwaggerPreviewError as exc:
+        return invalid_context_resolver(exc)
+    return context_resolver_for_mode(create_context, mode)
+
+
+async def no_context(_: Any) -> Any:
+    """Return the default preview context."""
+    return None
+
+
+def invalid_context_resolver(error: SwaggerPreviewError) -> Callable[[Any], Awaitable[Any]]:
+    """Return a resolver that raises a deferred preview configuration error."""
+
+    async def invalid_context(_: Any) -> Any:
+        raise error
+
+    return invalid_context
+
+
+def context_resolver_for_mode(
+    create_context: Callable[..., Any],
+    mode: str,
+) -> Callable[[Any], Awaitable[Any]]:
+    """Return the request resolver for a supported context factory mode."""
+
+    async def resolve_value(value: Any) -> Any:
+        if inspect.isawaitable(value):
+            return await value
+        return value
+
+    if mode == "none":
+
+        async def zero_argument_context(_: Any) -> Any:
+            return await resolve_value(create_context())
+
+        return zero_argument_context
+    if mode == "positional_request":
+
+        async def positional_request_context(request: Any) -> Any:
+            return await resolve_value(create_context(request))
+
+        return positional_request_context
+
+    async def keyword_request_context(request: Any) -> Any:
+        return await resolve_value(create_context(request=request))
+
+    return keyword_request_context
+
+
+def context_argument_mode(create_context: Callable[..., Any]) -> str:
+    """Return how a preview context factory accepts the request."""
     signature = inspect.signature(create_context)
     positional_parameters = [
         parameter
@@ -312,24 +368,19 @@ async def resolve_context(create_context: Callable[..., Any] | None, request: An
         for parameter in keyword_only_parameters
         if parameter.default is inspect.Parameter.empty
     ]
-
     if not required_positional_parameters and not required_keyword_only_parameters:
-        value = create_context()
-    elif len(required_positional_parameters) == 1 and not required_keyword_only_parameters:
-        value = create_context(request)
-    elif (
+        return "none"
+    if len(required_positional_parameters) == 1 and not required_keyword_only_parameters:
+        return "positional_request"
+    if (
         not required_positional_parameters
         and len(required_keyword_only_parameters) == 1
         and required_keyword_only_parameters[0].name == "request"
     ):
-        value = create_context(request=request)
-    else:
-        raise SwaggerPreviewError(
-            "create_context must accept zero arguments or one request argument"
-        )
-    if inspect.isawaitable(value):
-        return await value
-    return value
+        return "keyword_request"
+    raise SwaggerPreviewError("create_context must accept zero arguments or one request argument")
 
 
-__all__ = [name for name in globals() if not name.startswith("__")]
+async def resolve_context(create_context: Callable[..., Any] | None, request: Any) -> Any:
+    """Create the per-request context used by UseCaseAPI."""
+    return await build_context_resolver(create_context)(request)

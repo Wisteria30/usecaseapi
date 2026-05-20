@@ -1,14 +1,17 @@
 """JSON Schema to Manifest type-expression conversion."""
-# ruff: noqa: F403,F405
-# mypy: ignore-errors
 
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from typing import Any, cast
 
-from .common import *
-from .semantic_validation import *
+from .common import (
+    _JSON_SCHEMA_PRIMITIVE_TYPES,
+    _JSON_SCHEMA_STRING_FORMATS,
+    _SCHEMA_METADATA_KEYS,
+    ManifestError,
+)
+from .semantic_validation import is_supported_literal_value_object
 
 
 def schema_to_type_expr(
@@ -225,6 +228,3 @@ def object_schema_to_type_expr(
         raise ManifestError("object schema requires an additionalProperties schema")
     value_type = schema_to_type_expr(additional, component_name_prefix=component_name_prefix)
     return f"dict[str, {value_type}]"
-
-
-__all__ = [name for name in globals() if not name.startswith("__")]

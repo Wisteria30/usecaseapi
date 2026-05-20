@@ -1,9 +1,8 @@
 """General Manifest helper functions."""
-# ruff: noqa: F403,F405
-# mypy: ignore-errors
 
 from __future__ import annotations
 
+import ast
 import inspect
 import keyword
 import sys
@@ -15,8 +14,10 @@ from typing import Any
 from usecaseapi.contracts import UseCaseRef
 from usecaseapi.errors import UseCaseError
 
-from .common import *
-from .common import _EMPTY_SCHEMA_KEYS
+from .common import (
+    _EMPTY_SCHEMA_KEYS,
+    ManifestError,
+)
 
 
 def default_contract_file(usecase: Mapping[str, Any], *, contracts_root: str) -> str:
@@ -254,4 +255,13 @@ def without_none(value: dict[str, Any], *, preserve_empty: bool = False) -> dict
     return result
 
 
-__all__ = [name for name in globals() if not name.startswith("__")]
+def pascal_identifier(value: str) -> str:
+    """Return a PascalCase identifier fragment from snake_case or dotted names."""
+    return "".join(part.capitalize() for part in value.split("_"))
+
+
+def subscript_args(node: ast.AST) -> list[ast.AST]:
+    """Return subscript arguments as a list."""
+    if isinstance(node, ast.Tuple):
+        return list(node.elts)
+    return [node]

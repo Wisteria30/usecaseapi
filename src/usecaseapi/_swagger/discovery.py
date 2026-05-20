@@ -106,7 +106,7 @@ def discover_composition_targets(*, cwd: Path | None = None) -> list[PreviewTarg
     candidates: list[PreviewTargetCandidate] = []
     seen_paths: set[Path] = set()
     for import_root in project_import_roots(root):
-        for path in import_root.rglob("composition.py"):
+        for path in iter_composition_files(import_root):
             resolved = path.resolve()
             if resolved in seen_paths or should_skip_auto_discovery_path(path, import_root):
                 continue
@@ -122,6 +122,28 @@ def discover_composition_targets(*, cwd: Path | None = None) -> list[PreviewTarg
                 )
             )
     return sorted(candidates, key=lambda candidate: (*candidate.score, candidate.target))
+
+
+def iter_composition_files(import_root: Path) -> list[Path]:
+    """Return composition.py files while pruning directories before descent."""
+    found: list[Path] = []
+    pending = [import_root]
+    while pending:
+        directory = pending.pop()
+        try:
+            children = list(directory.iterdir())
+        except OSError:
+            continue
+        for child in children:
+            if child.is_dir():
+                if child.name in AUTO_DISCOVERY_EXCLUDED_DIRS:
+                    continue
+                if import_root.name != "src" and child.name == "src":
+                    continue
+                pending.append(child)
+            elif child.name == "composition.py":
+                found.append(child)
+    return found
 
 
 def project_import_roots(root: Path) -> tuple[Path, ...]:
@@ -192,6 +214,3 @@ def preview_target_score(module_name: str) -> tuple[int, int]:
     else:
         category = 2
     return category, len(parts)
-
-
-__all__ = [name for name in globals() if not name.startswith("__")]
